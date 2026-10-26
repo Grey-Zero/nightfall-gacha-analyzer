@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>夜幕之下抽卡分析</title>
+  <link rel="icon" href="assets/nightfall.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-theme="day">
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <img class="brand-mark" src="assets/nightfall.svg" alt="">
+        <div><strong>夜幕之下</strong><small>抽卡分析</small></div>
+      </div>
+      <label class="field-label" for="account-select">当前账号</label>
+      <select id="account-select"></select>
+      <div class="account-actions">
+        <button id="edit-account" class="secondary-button">编辑账号</button>
+        <button id="new-account" class="secondary-button">＋ 新建账号</button>
+      </div>
+      <nav id="category-nav" class="category-nav" aria-label="契约类别"></nav>
+      <div class="sidebar-bottom">
+        <button id="theme-toggle" class="secondary-button">切换至夜间</button>
+        <small class="muted">数据来自本地 nightfall.db</small>
+      </div>
+    </aside>
+    <main class="content">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">契约记录总览</p>
+          <h1 id="page-title">所有契约</h1>
+          <p id="page-subtitle" class="subtitle">按保底组连续统计六星间隔</p>
+        </div>
+        <div class="header-stat"><span id="total-records">0</span><small>条记录</small></div>
+      </header>
+      <section class="capture-panel" aria-label="抓取抽卡记录">
+        <div class="capture-heading">
+          <div>
+            <h2>抓取新记录</h2>
+            <p class="capture-description">从游戏网络流量读取本地账号的抽卡历史。</p>
+          </div>
+          <button id="capture-action" class="primary-button">开始采集记录</button>
+        </div>
+        <p id="capture-message" class="capture-message" role="status" aria-live="polite">
+          开始前请启动并登录游戏。采集时需要打开「契约记录 → 全部记录」并逐页翻阅。
+        </p>
+        <p id="capture-error" class="dialog-error" role="alert" hidden></p>
+        <ul id="capture-warnings" class="capture-warnings" hidden></ul>
+      </section>
+      <p id="app-status" class="status" role="status" hidden></p>
+      <section id="overview-page" class="overview-page" hidden>
+        <div class="overview-heading">
+          <div>
+            <h2>账号概览</h2>
+            <p id="overview-account" class="subtitle"></p>
+          </div>
+          <div class="overview-actions">
+            <button id="export-records" class="secondary-button">导出抽卡记录</button>
+            <button id="export-diagnostics" class="secondary-button">导出诊断信息</button>
+          </div>
+        </div>
+        <div class="stat-grid">
+          <article class="stat-card"><span id="overview-pulls">0</span><small>总抽数</small></article>
+          <article class="stat-card"><span id="overview-six-stars">0</span><small>六星获取</small></article>
+          <article class="stat-card"><span id="overview-on-rate">—</span><small>限定 / 遴选不歪率</small></article>
+        </div>
+        <section class="overview-breakdown">
+          <h3>各契约类别</h3>
+          <div id="overview-groups" class="overview-group-grid"></div>
+        </section>
+        <section class="overview-breakdown">
+          <h3>最近获得的六星</h3>
+          <div id="recent-six-stars" class="recent-six-stars"></div>
+        </section>
+      </section>
+      <section id="records-page" hidden>
+        <div class="records-toolbar">
+          <label><input id="toggle-dates" type="checkbox"> 显示获取时间</label>
+          <label><input id="toggle-five-stars" type="checkbox"> 显示途中获得的五星</label>
+        </div>
+        <section id="groups" class="groups" aria-live="polite"></section>
+      </section>
+    </main>
+  </div>
+  <dialog id="new-account-dialog">
+    <form method="dialog" id="account-form">
+      <h2>新建账号</h2>
+      <label class="field-label" for="nickname">昵称</label>
+      <input id="nickname" name="nickname" required maxlength="40" placeholder="例如：主账号">
+      <label class="field-label" for="uid">UID <span class="muted">可选</span></label>
+      <input id="uid" name="uid" maxlength="40" placeholder="可选">
+      <p id="account-error" class="dialog-error" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="button" id="cancel-account" class="secondary-button">取消</button><button type="submit" class="primary-button">创建</button></div>
+    </form>
+  </dialog>
+  <dialog id="capture-dialog">
+    <div class="capture-dialog-content">
+      <h2>开始抓取抽卡记录</h2>
+      <p>开始前请确认：</p>
+      <ol>
+        <li>游戏已启动并登录，且当前选择了要导入记录的账号。</li>
+        <li>采集开始后，在游戏中进入「契约 → 契约记录 → 全部记录」。</li>
+        <li>逐页翻阅到最后一页，再回到这里点击「停止并解析」。</li>
+      </ol>
+      <p class="muted">请勿选择单个卡池筛选。Windows 若提示权限不足，再关闭应用并尝试管理员身份启动；管理员启动时，部分非管理员软件的全局快捷键可能受 Windows 权限隔离影响。</p>
+      <div class="dialog-actions">
+        <button type="button" id="cancel-capture" class="secondary-button">取消</button>
+        <button type="button" id="confirm-capture" class="primary-button">我已准备好，开始</button>
+      </div>
+    </div>
+  </dialog>
+  <dialog id="edit-account-dialog">
+    <form method="dialog" id="edit-account-form">
+      <h2>编辑账号</h2>
+      <label class="field-label" for="edit-nickname">昵称</label>
+      <input id="edit-nickname" name="nickname" required maxlength="40" placeholder="例如：主账号">
+      <label class="field-label" for="edit-uid">UID <span class="muted">可选</span></label>
+      <input id="edit-uid" name="uid" maxlength="40" placeholder="填写游戏账号 UID">
+      <p id="edit-account-error" class="dialog-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" id="cancel-edit-account" class="secondary-button">取消</button>
+        <button type="submit" class="primary-button">保存</button>
+      </div>
+    </form>
+  </dialog>
+  <script src="app.js"></script>
+</body>
+</html>

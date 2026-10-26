@@ -1,0 +1,18 @@
+[
+  { "id": 10001, "name": "起始的契约" },
+  { "id": 20001, "name": "夜色的呼唤" },
+  { "id": 20002, "name": "被捆缚的正义", "featured_card_id": 13001009 },
+  { "id": 20003, "name": "天才不必孑立", "featured_card_id": 13001035 },
+  { "id": 20004, "name": "铁律的独裁者", "featured_card_id": 13001012 },
+  { "id": 20005, "name": "雷雨间伫立", "featured_card_id": 13001027 },
+  { "id": 20006, "name": "乘自由之风", "featured_card_id": 13001052 },
+  { "id": 20007, "name": "轻纱下的秘密", "featured_card_id": 13001025 },
+  { "id": 30001, "name": "不羁的盛装", "featured_card_id": 13001017 },
+  { "id": 30002, "name": "命运的赌徒", "featured_card_id": 13001010 },
+  { "id": 30003, "name": "被观看的自我", "featured_card_id": 13001054 },
+  { "id": 30004, "name": "喧嚣止息之时", "featured_card_id": 13001056 },
+  { "id": 30005, "name": "献予此世之雨", "featured_card_id": 13001021 },
+  { "id": 30006, "name": "隐秘的归属", "featured_card_id": 13001029 },
+  { "id": 30007, "name": "不曾摧折之善", "featured_card_id": 13001063 },
+  { "id": 30008, "name": "幸福无罪论", "featured_card_id": 13001062 }
+]

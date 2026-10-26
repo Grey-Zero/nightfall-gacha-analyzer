@@ -1,0 +1,43 @@
+# 本地账号数据和配置
+nightfall.db*
+config.json
+
+# 本机抓包附件及导出数据
+captures/
+*.pcap
+*.pcapng
+data/nightfall-gacha-records.json
+nightfall-gacha-records.json
+
+# 本地开发工具
+dev/
+/tools/*
+!/tools/clicker.py
+
+# TShark/Wireshark
+tshark/
+lib/
+
+# 打包产物
+dist/
+build/
+*.spec
+
+# Python 和测试缓存
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+.vscode/
+
+# 测试抓包附件
+tests/fixtures/**/*.pcap
+tests/fixtures/**/*.pcapng
+
+# 临时文件和备份
+*.log
+*.tmp
+*.bak
+*.bak-*
