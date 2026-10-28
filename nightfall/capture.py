@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """抓包录制与解析（TShark 写文件，事后解析，避免实时处理丢包）"""
+import os
 import subprocess
 import tempfile
 import time
@@ -43,8 +44,14 @@ class PacketCapture:
             "-w", self.pcap_path,
         ]
 
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         self.tshark_process = subprocess.Popen(
-            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            cmd,
+            cwd=str(Path(self.tshark_path).parent),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            creationflags=creationflags,
+        )
 
         # 过滤器语法错误或权限不足会立刻退出，早点暴露
         time.sleep(1.0)
@@ -103,6 +110,25 @@ class PacketCapture:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
+        original_popen = None
+        if os.name == "nt":
+            original_popen = subprocess.Popen
+
+            def popen_hidden(*args, **kwargs):
+                kwargs.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
+                return original_popen(*args, **kwargs)
+
+            subprocess.Popen = popen_hidden
+
+            if hasattr(asyncio, "create_subprocess_exec"):
+                original_create_subprocess_exec = asyncio.create_subprocess_exec
+
+                async def create_subprocess_exec_hidden(*args, **kwargs):
+                    kwargs.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
+                    return await original_create_subprocess_exec(*args, **kwargs)
+
+                asyncio.create_subprocess_exec = create_subprocess_exec_hidden
+
         capture = pyshark.FileCapture(
             pcap_path, display_filter="tcp",
             tshark_path=self.tshark_path, keep_packets=False)
@@ -143,16 +169,15 @@ class PacketCapture:
                 capture.close()
             except Exception:
                 pass
+            if os.name == "nt" and "original_create_subprocess_exec" in locals():
+                asyncio.create_subprocess_exec = original_create_subprocess_exec
+            if os.name == "nt" and original_popen is not None:
+                subprocess.Popen = original_popen
             try:
                 loop.close()
             except Exception:
                 pass
             asyncio.set_event_loop(None)
-
-        print(f"[解析] 读取 {packet_count} 个包，{len(streams)} 条 TCP 流")
-        for stream_id, data in sorted(streams.items()):
-            print(f"    流 {stream_id}: 客户端 {len(data['client'])} 字节，"
-                  f"服务端 {len(data['server'])} 字节")
 
         return [(d["client"], d["server"]) for _, d in sorted(streams.items())]
 

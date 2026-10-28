@@ -11,9 +11,7 @@ class GachaMonitor:
         self.stats = {}
 
     def start(self):
-        pcap_path = self.capture.start_recording()
-        print(f"[录制] 输出到 {pcap_path}")
-        return pcap_path
+        return self.capture.start_recording()
 
     def get_captured_size(self):
         return self.capture.get_captured_size()

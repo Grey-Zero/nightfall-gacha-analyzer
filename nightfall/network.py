@@ -4,6 +4,7 @@
 import re
 import socket
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -88,10 +89,15 @@ def get_interface_by_ip(local_ip):
 
 
 def find_tshark():
-    """查找 TShark，优先项目内捆绑版本"""
-    project_tshark = Path(__file__).parent.parent / "tshark" / "tshark.exe"
-    if project_tshark.exists():
-        return str(project_tshark)
+    """查找 TShark，优先项目或发行包内捆绑版本"""
+    candidates = [Path(__file__).parent.parent / "tshark" / "tshark.exe"]
+    if getattr(sys, "frozen", False):
+        candidates.insert(0, Path(sys._MEIPASS) / "tshark" / "tshark.exe")
+        candidates.append(Path(sys.executable).resolve().parent / "_internal" / "tshark" / "tshark.exe")
+
+    for project_tshark in candidates:
+        if project_tshark.exists():
+            return str(project_tshark)
 
     for path in (r"C:\Program Files\Wireshark\tshark.exe",
                  r"C:\Program Files (x86)\Wireshark\tshark.exe"):
@@ -114,10 +120,12 @@ def map_interface_name(friendly_name):
         return friendly_name
 
     try:
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         output = subprocess.run(
             [tshark_path, "-D"],
             capture_output=True, text=True, timeout=10,
             encoding="utf-8", errors="replace",
+            creationflags=creationflags,
         ).stdout
     except (subprocess.SubprocessError, OSError):
         return friendly_name
@@ -143,17 +151,11 @@ def get_game_connection(process_name=GAME_PROCESS):
         config = load_config()
         cached = config.get("game_connection")
         if cached:
-            print(f"[!] 未检测到活动连接，使用缓存: "
-                  f"{len(cached.get('endpoints', []))} 个端点")
             return cached
         raise RuntimeError(
             f"未找到游戏进程 {process_name} 或其网络连接\n\n"
             f"请确保游戏已启动并登录。"
         )
-
-    print(f"[✓] 游戏进程 PID {result['pid']}，接口 {result['interface']}")
-    for ip, port in result["endpoints"]:
-        print(f"    候选连接 {ip}:{port}")
 
     config = load_config()
     config["game_connection"] = {

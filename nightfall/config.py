@@ -1,8 +1,14 @@
 """配置文件管理"""
 import json
+import sys
 from pathlib import Path
 
-CONFIG_PATH = Path("config.json")
+APP_ROOT = (
+    Path(sys.executable).resolve().parent
+    if getattr(sys, "frozen", False)
+    else Path(__file__).resolve().parent.parent
+)
+CONFIG_PATH = APP_ROOT / "config.json"
 
 DEFAULT_CONFIG = {
     "last_account_id": None,
@@ -18,8 +24,7 @@ def load_config():
 
     try:
         return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    except Exception as e:
-        print(f"[!] 配置文件损坏，重置为默认: {e}")
+    except Exception:
         save_config(DEFAULT_CONFIG)
         return DEFAULT_CONFIG.copy()
 

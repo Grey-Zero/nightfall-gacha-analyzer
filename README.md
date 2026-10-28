@@ -17,6 +17,7 @@ desktop.py          桌面应用入口及前端 API
 main.py             命令行采集入口
 nightfall/          抓包、协议解析、数据库和分析服务
 frontend/           PyWebView 前端和图标资源
+frontend/assets/    Windows 应用图标和界面图标
 data/cards.json     卡牌元数据
 data/pools.json     卡池及 UP 卡映射
 tests/              自动化回归测试
@@ -24,15 +25,16 @@ tools/clicker.py    Windows 点击器辅助工具（也由对应测试使用）
 ```
 
 本地数据库、配置、原始抓包和导出记录都只保存在本机，不应提交到代码仓库。
+Windows 桌面窗口使用 `frontend/assets/nightfall.ico` 作为原生窗口图标；该图标由项目提供的原图裁切生成。
 
 ## 环境要求
 
 - Windows 10/11
 - Python 3.10 或更新版本
-- Wireshark（需包含 TShark）和 Npcap
+- Npcap（运行抓包功能时需要 Windows 捕获驱动）
 - Windows 抓包可能需要管理员权限；只有权限不足时才尝试以管理员身份启动
 
-程序会先查找项目目录下的 `tshark/tshark.exe`，再查找常见的 Wireshark 安装路径。为避免把第三方二进制文件提交进仓库，`tshark/` 目录已加入 `.gitignore`。推荐安装 Wireshark 与 Npcap，而不是把 DLL/EXE 复制进项目。
+发行包内已捆绑 TShark，程序会优先使用 `tshark/tshark.exe`。项目源码目录中的 `tshark/` 为本地构建附件，已加入 `.gitignore`，源码不直接提交第三方二进制文件。仍需在 Windows 上安装 Npcap 捕获驱动；若系统已有 Npcap，可以无需额外安装。
 
 ## 安装与运行
 
@@ -46,6 +48,15 @@ python desktop.py
 ```
 
 首次运行会在项目根目录创建本地数据库 `nightfall.db`。启动后创建或选择账号，再开始采集。
+
+## 构建 Windows 发行目录
+
+```powershell
+python -m pip install -r requirements-dev.txt
+python -m PyInstaller --noconfirm NightfallGachaAnalyzer.spec
+```
+
+发行目录位于 `dist/NightfallGachaAnalyzer/`。打包配置优先使用项目内的 `tshark/`；若不存在，则使用本机安装的 Wireshark，并将完整 TShark 运行文件放入发行目录。卡牌/卡池数据、前端资源和 `nightfall.ico` 也会一并打包。将整个目录压缩为 ZIP 后发布；数据库和配置保存在 EXE 旁边。用户仍需安装 Npcap 才能创建网络捕获接口。
 
 采集时请启动并登录游戏，在确认窗口出现后开始采集；随后打开「契约记录 → 全部记录」并逐页翻阅。完成后回到工具点击「停止并解析」。请勿使用单个卡池筛选。
 

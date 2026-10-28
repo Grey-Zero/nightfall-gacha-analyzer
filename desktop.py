@@ -16,8 +16,14 @@ from nightfall.database import DatabaseManager
 from nightfall.network import find_tshark
 
 
-ROOT = Path(__file__).parent
-DB_PATH = ROOT / "nightfall.db"
+ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+APP_ROOT = (
+    Path(sys.executable).resolve().parent
+    if getattr(sys, "frozen", False)
+    else Path(__file__).parent
+)
+DB_PATH = APP_ROOT / "nightfall.db"
+ICON_PATH = ROOT / "frontend" / "assets" / "nightfall.ico"
 capture_service = CaptureService(DB_PATH)
 
 
@@ -132,7 +138,7 @@ def main():
         min_size=(720, 520),
         resizable=True,
     )
-    webview.start(debug=False)
+    webview.start(debug=False, icon=str(ICON_PATH))
     return window
 
 

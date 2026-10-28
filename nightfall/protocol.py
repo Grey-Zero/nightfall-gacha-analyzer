@@ -200,10 +200,7 @@ def parse_c08_response(body):
                 elif f == 3:
                     timestamp_ms = v
                 else:
-                    # 探测：record 里是否有我们没用到的字段
-                    if f not in _reported_unknown_fields:
-                        _reported_unknown_fields.add(f)
-                        print(f"[探测] record 存在未知字段 f={f} wire={wt} value={v!r}")
+                    _reported_unknown_fields.add(f)
 
             if pool_id and result_id and timestamp_ms:
                 records.append((pool_id, result_id, timestamp_ms))

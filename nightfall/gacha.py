@@ -185,7 +185,7 @@ def find_gaps(pages):
     return gaps
 
 
-def extract_records(streams, verbose=True):
+def extract_records(streams, verbose=False):
     """从多条 TCP 流中提取抽卡记录
 
     streams: [(client_stream, server_stream), ...]
@@ -208,11 +208,6 @@ def extract_records(streams, verbose=True):
 
         requests, req_failed = build_request_index(client_bodies)
         stream_pages, stream_stats = collect_query0_pages(server_frames, requests)
-
-        if verbose:
-            print(f"[提取] 流 {index}: 请求 {len(client_bodies)} 个，"
-                  f"响应 {stream_stats['responses']} 个，"
-                  f"有效页 {len(stream_pages)} 个")
 
         stream_total = stream_stats.get('total', 0)
         if server_total and stream_total and server_total != stream_total:
@@ -238,44 +233,5 @@ def extract_records(streams, verbose=True):
     stats['pages'] = len(pages)
     stats['records'] = len(records)
 
-    if verbose:
-        _print_stats(stats, records, gaps)
-
     stats['gaps'] = gaps
     return records, stats
-
-
-def _print_stats(stats, records, gaps):
-    print(f"[提取] c08 请求 {stats['requests']} 个"
-          f"（解析失败 {stats['request_parse_failed']}）")
-    print(f"[提取] c08 响应 {stats['responses']} 个")
-
-    for key, label in (
-        ('bad_frames', '错帧丢弃'),
-        ('decompress_failed', '解压失败'),
-        ('parse_failed', '解析失败'),
-        ('duplicate_pages', '重复页（已去重）'),
-    ):
-        if stats[key]:
-            print(f"[提取] {label} {stats[key]} 个")
-
-    if stats['unpaired']:
-        print(f"[提取] 未配对响应 {stats['unpaired']} 个"
-              f"（请求早于录制开始，或 seq 解析有误）")
-    if stats['single_pool']:
-        print(f"[提取] 单池查询响应 {stats['single_pool']} 个（已忽略）")
-
-    print(f"[提取] 有效页 {stats['pages']} 个，记录 {stats['records']} 条")
-
-    if stats['total']:
-        print(f"[提取] 服务器报告总数 {stats['total']} 条，"
-              f"已覆盖 {stats['records']} 条")
-
-    if gaps:
-        print(f"[警告] offset 覆盖不连续，缺口: {gaps}")
-
-    pool_counts = Counter(r[0] for r in records)
-    if pool_counts:
-        print(f"[提取] 各池分布:")
-        for pool_id, count in sorted(pool_counts.items()):
-            print(f"  池 {pool_id}: {count} 条")
