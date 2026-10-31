@@ -153,7 +153,7 @@ nightfall/
   cards.py               卡牌与卡池数据加载
   cli_ui.py              命令行界面
 frontend/                PyWebView 界面（HTML/CSS/JS）与图标
-data/                    卡牌与卡池元数据
+data/                    卡牌与卡池元数据（部分由历史记录归纳而来）
 tests/                   回归测试
 NightfallGachaAnalyzer.spec   PyInstaller 打包配置
 ```
@@ -190,7 +190,9 @@ python -m pytest tests -q
 
 ## 致谢
 
-抓包依赖 [Wireshark / TShark](https://www.wireshark.org/) 与 [Npcap](https://npcap.com/)。
+- 抓包依赖 [Wireshark / TShark](https://www.wireshark.org/) 与 [Npcap](https://npcap.com/)。
+- [nightfall-gacha-export](https://github.com/MILImusic/nightfall-gacha-export)：本项目的卡牌表和卡池表有相当一部分来自分析它导出的历史记录。那个项目用 JavaScript + WinDivert 接管流量，体积超过 300 MB，还要做流量重定向，风险和维护成本都不低；这也是本项目改用 Python 只做被动监听的原因——不修改游戏文件、不注入进程、不改动连接，只读取本机网卡上已有的数据。
+- 本项目的代码与文档在 AI 助手（GitHub Copilot）的协助下完成。它不是人，所以不该出现在贡献者列表里，但确实一起熬了不少夜，谢谢它。
 
 ## 免责声明
 
