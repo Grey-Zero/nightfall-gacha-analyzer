@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """抽卡历史捕获监听器"""
 from .capture import PacketCapture
+from .config import APP_ROOT
 from .gacha import extract_records
 
 
@@ -34,6 +35,12 @@ class GachaMonitor:
 
     def cleanup(self):
         self.capture.cleanup()
+
+    def preserve_capture(self, target_dir=None):
+        """解析失败时留住本次抓包，便于定位丢包或错帧"""
+        if target_dir is None:
+            target_dir = APP_ROOT / "captures"
+        return self.capture.preserve(target_dir)
 
     def get_page_count(self):
         return self.stats.get('pages', 0)

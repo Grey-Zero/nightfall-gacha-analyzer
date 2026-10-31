@@ -33,6 +33,8 @@ class FakeMonitor:
         return 0
 
     def get_server_total(self):
+        if self.extract_stats and self.extract_stats.get("total"):
+            return self.extract_stats["total"]
         return len(self.records)
 
     def get_extract_stats(self):
@@ -106,6 +108,30 @@ class CaptureServiceTests(unittest.TestCase):
 
         self.assertEqual(state["result"]["records"], 0)
         self.assertIn("漏页", state["result"]["message"])
+        db = DatabaseManager(self.db_path)
+        try:
+            self.assertEqual(db.get_record_count(self.account_id), 0)
+        finally:
+            db.close()
+
+    def test_incomplete_stream_is_not_imported(self):
+        monitor = FakeMonitor(
+            [(30001, 13001017, 1000, 0)],
+            {"responses": 4, "incomplete_streams": 1, "total": 1276,
+             "covered_end": 120},
+        )
+        service = CaptureService(self.db_path)
+        with patch(
+            "nightfall.capture_service.detect_game_connections",
+            return_value={"endpoints": [("192.0.2.1", 9000)], "interface": "test"},
+        ), patch("nightfall.capture_service.GachaMonitor", return_value=monitor):
+            service.start(self.account_id)
+            self.wait_for_status(service, "recording")
+            service.stop()
+            state = self.wait_for_status(service, "completed")
+
+        self.assertEqual(state["result"]["records"], 0)
+        self.assertIn("丢", state["result"]["message"])
         db = DatabaseManager(self.db_path)
         try:
             self.assertEqual(db.get_record_count(self.account_id), 0)

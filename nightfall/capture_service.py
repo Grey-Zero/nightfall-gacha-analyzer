@@ -152,6 +152,31 @@ class CaptureService:
                 result=result,
             )
 
+    def _reject(self, monitor, diagnostics, reason):
+        """拒绝导入并保留本次抓包，便于定位解析问题"""
+        pcap_path = None
+        preserve = getattr(monitor, "preserve_capture", None)
+        if preserve:
+            try:
+                pcap_path = preserve()
+            except OSError:
+                pcap_path = None
+
+        message = reason
+        if pcap_path:
+            message += f"\n本次抓包已保存到 {pcap_path}，反馈问题时可以附上它。"
+
+        return {
+            "records": 0,
+            "inserted": 0,
+            "duplicated": 0,
+            "server_total": monitor.get_server_total(),
+            "single_pool_queries": monitor.get_single_pool_count(),
+            "warnings": [],
+            "diagnostics": diagnostics,
+            "message": message,
+        }
+
     def _save_records(self, account_id, records, monitor):
         diagnostics_getter = getattr(monitor, "get_extract_stats", None)
         diagnostics = diagnostics_getter() if diagnostics_getter else {}
@@ -160,42 +185,62 @@ class CaptureService:
             gap_text = "、".join(
                 f"{start}-{end}" for start, end in gaps
             )
-            return {
-                "records": 0,
-                "inserted": 0,
-                "duplicated": 0,
-                "server_total": monitor.get_server_total(),
-                "single_pool_queries": monitor.get_single_pool_count(),
-                "warnings": [],
-                "diagnostics": diagnostics,
-                "message": (
-                    "没有导入记录：抓取到的分页中存在漏页"
-                    f"（异常区间：{gap_text}）。请重新完整采集"
-                    "「契约记录 → 全部记录」，逐页翻到最后后停止。"
-                ),
-            }
+            return self._reject(
+                monitor,
+                diagnostics,
+                "没有导入记录：抓取到的分页中存在漏页"
+                f"（异常区间：{gap_text}）。请重新完整采集"
+                "「契约记录 → 全部记录」，逐页翻到最后后停止。",
+            )
+
+        server_total = monitor.get_server_total()
+        covered_end = diagnostics.get("covered_end", 0)
+        if records and diagnostics.get("incomplete_streams") and server_total \
+                and covered_end < server_total:
+            return self._reject(
+                monitor,
+                diagnostics,
+                "没有导入记录：抓包丢失了部分数据流，"
+                f"只覆盖到第 {covered_end}/{server_total} 条。"
+                "请重新采集；如果反复出现，请尝试用管理员身份运行，"
+                "或关闭占带宽的程序后重试。",
+            )
 
         if not records:
             single_pool_count = monitor.get_single_pool_count()
-            diagnostics_getter = getattr(monitor, "get_extract_stats", None)
-            diagnostics = diagnostics_getter() if diagnostics_getter else {}
             mismatch_count = diagnostics.get("offset_mismatch", 0)
             unpaired_count = diagnostics.get("unpaired", 0)
             bad_frame_count = diagnostics.get("bad_frames", 0)
+            decompress_failed = diagnostics.get("decompress_failed", 0)
+            incomplete_streams = diagnostics.get("incomplete_streams", 0)
             response_count = diagnostics.get("responses", 0)
+            request_count = diagnostics.get("requests", 0)
             details = []
+            if response_count:
+                details.append(f"共解析到 {response_count} 个抽卡响应")
+            if request_count:
+                details.append(f"共解析到 {request_count} 个抽卡请求")
             if mismatch_count:
                 details.append(f"{mismatch_count} 个响应与请求 offset 不一致")
             if unpaired_count:
                 details.append(f"{unpaired_count} 个响应没有找到请求")
             if bad_frame_count:
                 details.append(f"{bad_frame_count} 个响应帧不完整或无法识别")
-            if response_count:
-                details.append(f"共解析到 {response_count} 个抽卡响应")
+            if decompress_failed:
+                details.append(f"{decompress_failed} 个响应解压失败")
+            if incomplete_streams:
+                details.append(
+                    f"{incomplete_streams} 条数据流因抓包丢包不完整")
             if single_pool_count:
                 message = (
                     "没有导入记录：抓到了单卡池筛选请求。请重新采集，"
                     "并在游戏中进入「契约记录 → 全部记录」后逐页翻阅。"
+                )
+            elif incomplete_streams and not response_count:
+                message = (
+                    "没有解析到记录：抓包丢失了数据段，字节流不完整。"
+                    "请以管理员身份运行并重新采集，"
+                    "采集期间不要同时下载或观看视频。"
                 )
             else:
                 message = (
@@ -204,6 +249,8 @@ class CaptureService:
                 )
             if details:
                 message += "\n诊断：" + "；".join(details) + "。"
+            if not response_count:
+                return self._reject(monitor, diagnostics, message)
             return {
                 "records": 0,
                 "inserted": 0,

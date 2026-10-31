@@ -216,11 +216,24 @@ def extract_records(streams, verbose=False):
     stats = Counter()
     server_total = 0
 
-    for index, (client_stream, server_stream) in enumerate(streams):
+    for index, stream in enumerate(streams):
+        if isinstance(stream, dict):
+            client_stream = stream.get("client", b"")
+            server_stream = stream.get("server", b"")
+            incomplete = bool(stream.get("incomplete"))
+        else:
+            # 兼容直接传入 (client, server) 字节对的调用方
+            client_stream, server_stream = stream
+            incomplete = False
+
         client_bodies, server_frames = split_frames(client_stream, server_stream)
 
         if not client_bodies and not server_frames:
             continue
+
+        if incomplete:
+            # 抓包丢段会让帧头错位，这一条流的配对结果不可信
+            stats['incomplete_streams'] += 1
 
         requests, req_failed = build_request_index(client_bodies)
         stream_pages, stream_stats = collect_query0_pages(server_frames, requests)
@@ -250,4 +263,8 @@ def extract_records(streams, verbose=False):
     stats['records'] = len(records)
 
     stats['gaps'] = gaps
+    # 已覆盖到哪条位置，用于区分「没翻到底」和「中间缺页」
+    stats['covered_end'] = (
+        max(pages) + len(pages[max(pages)]) if pages else 0
+    )
     return records, stats

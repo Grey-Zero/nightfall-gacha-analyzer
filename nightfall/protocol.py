@@ -103,7 +103,11 @@ def parse_client_frame(data):
 
 
 def decompress_lz4_tolerant(data):
-    """容错 LZ4 解压（跳过可变长度的 varint 前缀）"""
+    """容错 LZ4 解压（跳过可变长度的 varint 前缀）
+
+    输出尺寸必须逐级放大：分页记录变多时响应体远超 1 MB，
+    固定上限会让整页解压失败，被当成无效帧丢掉
+    """
     offset = 0
     while offset < len(data) and offset < 5:
         if data[offset] < 0x80:
@@ -112,10 +116,12 @@ def decompress_lz4_tolerant(data):
         offset += 1
 
     for start in range(offset, min(offset + 10, len(data))):
-        try:
-            return lz4.block.decompress(data[start:], uncompressed_size=1024 * 1024)
-        except Exception:
-            continue
+        size = 256 * 1024
+        while size <= 64 * 1024 * 1024:
+            try:
+                return lz4.block.decompress(data[start:], uncompressed_size=size)
+            except Exception:
+                size *= 4
 
     raise ValueError("无法解压 LZ4 数据")
 
