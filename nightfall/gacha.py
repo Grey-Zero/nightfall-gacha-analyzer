@@ -137,7 +137,7 @@ def collect_query0_pages(server_frames, requests):
             matched_index = None
             for index, candidate in enumerate(request_queue):
                 candidate_pool, candidate_offset = candidate
-                if candidate_offset == offset:
+                if candidate_pool == QUERY_ALL and candidate_offset == offset:
                     matched_index = index
                     break
 

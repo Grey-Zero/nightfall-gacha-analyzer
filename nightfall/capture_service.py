@@ -165,13 +165,28 @@ class CaptureService:
                     "没有解析到记录。请确认采集期间确实打开并翻阅了"
                     "「契约记录 → 全部记录」。"
                 )
+            diagnostics = (
+                monitor.get_parse_diagnostics()
+                if hasattr(monitor, "get_parse_diagnostics")
+                else {}
+            )
+            warnings = []
+            if diagnostics:
+                warnings.append(
+                    "解析统计："
+                    f"响应 {diagnostics.get('responses', 0)}、"
+                    f"请求 {diagnostics.get('requests', 0)}、"
+                    f"未配对 {diagnostics.get('unpaired', 0)}、"
+                    f"offset错配 {diagnostics.get('offset_mismatch', 0)}、"
+                    f"无效帧 {diagnostics.get('bad_frames', 0)}。"
+                )
             return {
                 "records": 0,
                 "inserted": 0,
                 "duplicated": 0,
                 "server_total": monitor.get_server_total(),
                 "single_pool_queries": single_pool_count,
-                "warnings": [],
+                "warnings": warnings,
                 "message": message,
             }
 

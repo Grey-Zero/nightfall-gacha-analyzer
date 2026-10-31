@@ -48,3 +48,7 @@ class GachaMonitor:
 
     def get_server_total(self):
         return self.stats.get('total', 0)
+
+    def get_parse_diagnostics(self):
+        """返回解析统计，用于在采集结果为空时显示具体原因。"""
+        return dict(self.stats)
