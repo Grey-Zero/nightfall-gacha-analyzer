@@ -192,7 +192,7 @@ python -m pytest tests -q
 
 - 抓包依赖 [Wireshark / TShark](https://www.wireshark.org/) 与 [Npcap](https://npcap.com/)。
 - [nightfall-gacha-export](https://github.com/MILImusic/nightfall-gacha-export)：本项目的卡牌表和卡池表有相当一部分来自分析它导出的历史记录。那个项目用 JavaScript + WinDivert 接管流量，体积超过 300 MB，还要做流量重定向，风险和维护成本都不低；这也是本项目改用 Python 只做被动监听的原因——不修改游戏文件、不注入进程、不改动连接，只读取本机网卡上已有的数据。
-- 本项目的代码与文档在 AI 编程助手的协助下完成：VS Code 中的 GitHub Copilot，底层用 DeepSeek 模型。它不是人，所以不该出现在贡献者列表里，但确实一起熬了不少夜，谢谢它。
+- 本项目的代码与文档在Copilot的协助下完成，使用 DeepSeek API。它不是人，所以不该出现在贡献者列表里，但确实一起熬了不少夜，谢谢它。
 
 ## 免责声明
 
