@@ -4,9 +4,11 @@
 import time
 
 from nightfall import cli_ui
+from nightfall.config import DB_PATH
 from nightfall.database import DatabaseManager
 from nightfall.monitor import GachaMonitor
 from nightfall.network import detect_game_connections
+from nightfall.storage import migrate_legacy_data
 
 
 def wait_for_game(poll_interval=1.0, timeout=120.0):
@@ -61,6 +63,7 @@ def capture_records():
 
 
 def main():
+    migrate_legacy_data()
     cli_ui.show_title()
 
     result = capture_records()
@@ -70,7 +73,7 @@ def main():
 
     cli_ui.show_capture_summary(len(records), server_total)
 
-    db = DatabaseManager("nightfall.db")
+    db = DatabaseManager(DB_PATH)
     try:
         account_id = cli_ui.select_account(db)
         db.set_active_account(account_id)

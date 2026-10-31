@@ -1,4 +1,7 @@
+import sqlite3
+import tempfile
 import unittest
+from pathlib import Path
 
 from nightfall.cards import get_card
 from nightfall.cli_ui import GROUP_NAMES
@@ -124,10 +127,68 @@ class PositionValidationTests(unittest.TestCase):
         self.assertIsNone(self.db.get_account(self.account_id)["uid"])
         self.assertFalse(self.db.update_account(-1, "不存在"))
 
+    def test_account_note_is_optional_and_updatable(self):
+        account = self.db.get_account(self.account_id)
+        self.assertIsNone(account["note"])
+
+        self.db.update_account(self.account_id, "主账号", None, "国服主号")
+        self.assertEqual(
+            self.db.get_account(self.account_id)["note"], "国服主号")
+
+        self.db.update_account(self.account_id, "主账号", None, None)
+        self.assertIsNone(self.db.get_account(self.account_id)["note"])
+
+    def test_note_column_is_added_to_existing_database(self):
+        legacy_path = Path(tempfile.mkdtemp()) / "legacy.db"
+        conn = sqlite3.connect(legacy_path)
+        conn.execute("""
+            CREATE TABLE accounts (
+                account_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nickname TEXT NOT NULL UNIQUE,
+                uid TEXT,
+                created_at TEXT NOT NULL,
+                last_active_at TEXT NOT NULL
+            )
+        """)
+        conn.execute(
+            "INSERT INTO accounts (nickname, uid, created_at, last_active_at) "
+            "VALUES ('旧账号', NULL, '2026-01-01T00:00:00Z', "
+            "'2026-01-01T00:00:00Z')")
+        conn.commit()
+        conn.close()
+
+        db = DatabaseManager(legacy_path)
+        try:
+            account = db.get_all_accounts()[0]
+            self.assertEqual(account["nickname"], "旧账号")
+            self.assertIsNone(account["note"])
+            db.update_account(account["account_id"], "旧账号", None, "迁移后")
+            self.assertEqual(
+                db.get_account(account["account_id"])["note"], "迁移后")
+        finally:
+            db.close()
+
     def test_account_rename_rejects_a_duplicate_nickname(self):
         self.db.create_account("已有账号")
         with self.assertRaisesRegex(ValueError, "昵称已被其他账号使用"):
             self.db.update_account(self.account_id, "已有账号")
+
+    def test_delete_account_cascades_records_and_updates(self):
+        self.db.insert_records(self.account_id, [
+            (30001, 13001001, 1000, 0),
+        ])
+        self.db.save_update_snapshot(self.account_id, 1, [{
+            "pool_id": 30001,
+            "result_id": 13001001,
+            "timestamp_ms": 1000,
+            "position": 0,
+        }])
+
+        self.assertTrue(self.db.delete_account(self.account_id))
+        self.assertIsNone(self.db.get_account(self.account_id))
+        self.assertEqual(self.db.get_record_count(self.account_id), 0)
+        self.assertIsNone(self.db.get_last_update(self.account_id))
+        self.assertFalse(self.db.delete_account(self.account_id))
 
 
 if __name__ == "__main__":

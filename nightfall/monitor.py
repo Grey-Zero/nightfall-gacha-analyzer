@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """抽卡历史捕获监听器"""
 from .capture import PacketCapture
-from .config import APP_ROOT
+from .config import CAPTURES_DIR
 from .gacha import extract_records
 
 
@@ -39,8 +39,21 @@ class GachaMonitor:
     def preserve_capture(self, target_dir=None):
         """解析失败时留住本次抓包，便于定位丢包或错帧"""
         if target_dir is None:
-            target_dir = APP_ROOT / "captures"
+            target_dir = CAPTURES_DIR
         return self.capture.preserve(target_dir)
+
+    def preserve_latest(self, target_dir=None, metadata=None):
+        """覆盖保存最近一次抓包，供「分析最近抓包」随时使用"""
+        if target_dir is None:
+            target_dir = CAPTURES_DIR
+        return self.capture.preserve(
+            target_dir, filename="latest-capture.pcap", metadata=metadata)
+
+    def get_capture_metadata(self):
+        return {
+            "endpoints": [list(endpoint) for endpoint in self.capture.endpoints],
+            "interface": self.capture.interface,
+        }
 
     def get_page_count(self):
         return self.stats.get('pages', 0)

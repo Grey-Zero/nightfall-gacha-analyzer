@@ -10,23 +10,40 @@
 <body data-theme="day">
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="brand">
-        <img class="brand-mark" src="assets/nightfall.svg" alt="">
-        <div><strong>夜幕之下</strong><small>抽卡分析</small></div>
-      </div>
-      <label class="field-label" for="account-select">当前账号</label>
-      <select id="account-select"></select>
-      <div class="account-actions">
-        <button id="edit-account" class="secondary-button">编辑账号</button>
-        <button id="new-account" class="secondary-button">＋ 新建账号</button>
+      <div class="sidebar-top">
+        <div class="brand">
+          <img class="brand-mark" src="assets/nightfall.svg" alt="">
+          <div><strong>夜幕之下</strong><small>抽卡分析</small></div>
+        </div>
+        <label class="field-label" for="account-select">当前账号</label>
+        <select id="account-select"></select>
+        <p id="account-note" class="account-note" hidden></p>
+        <div class="account-actions">
+          <button id="edit-account" class="secondary-button">编辑账号</button>
+          <button id="new-account" class="secondary-button">＋ 新建账号</button>
+          <button id="delete-account" class="secondary-button danger-button">删除账号</button>
+        </div>
       </div>
       <nav id="category-nav" class="category-nav" aria-label="契约类别"></nav>
       <div class="sidebar-bottom">
         <button id="theme-toggle" class="secondary-button">切换至夜间</button>
-        <small class="muted">数据来自本地 nightfall.db</small>
+        <div class="sidebar-meta">
+          <small class="muted">数据保存在本机用户目录</small>
+          <small class="muted" id="app-version"></small>
+        </div>
       </div>
     </aside>
     <main class="content">
+      <div id="update-banner" class="update-banner" hidden>
+        <div>
+          <strong id="update-title">发现新版本</strong>
+          <span id="update-detail"></span>
+        </div>
+        <div class="update-actions">
+          <button id="open-update" class="primary-button">打开下载页</button>
+          <button id="dismiss-update" class="secondary-button">稍后</button>
+        </div>
+      </div>
       <header class="page-header">
         <div>
           <p class="eyebrow">契约记录总览</p>
@@ -35,37 +52,71 @@
         </div>
         <div class="header-stat"><span id="total-records">0</span><small>条记录</small></div>
       </header>
-      <section class="capture-panel" aria-label="抓取抽卡记录">
-        <div class="capture-heading">
-          <div>
-            <h2>抓取新记录</h2>
-            <p class="capture-description">从游戏网络流量读取本地账号的抽卡历史。</p>
-          </div>
-          <button id="capture-action" class="primary-button">开始采集记录</button>
-        </div>
-        <p id="capture-message" class="capture-message" role="status" aria-live="polite">
-          开始前请启动并登录游戏。采集时需要打开「契约记录 → 全部记录」并逐页翻阅。
-        </p>
-        <p id="capture-error" class="dialog-error" role="alert" hidden></p>
-        <ul id="capture-warnings" class="capture-warnings" hidden></ul>
-      </section>
       <p id="app-status" class="status" role="status" hidden></p>
       <section id="overview-page" class="overview-page" hidden>
-        <div class="overview-heading">
-          <div>
-            <h2>账号概览</h2>
-            <p id="overview-account" class="subtitle"></p>
+        <section class="capture-panel" aria-label="抓取抽卡记录">
+          <div class="capture-heading">
+            <div>
+              <h2>抓取新记录</h2>
+              <p class="capture-description">从游戏网络流量读取本地账号的抽卡历史。</p>
+            </div>
+            <button id="capture-action" class="primary-button">开始采集记录</button>
           </div>
-          <div class="overview-actions">
-            <button id="export-records" class="secondary-button">导出抽卡记录</button>
-            <button id="export-diagnostics" class="secondary-button">导出诊断信息</button>
+          <p id="capture-message" class="capture-message" role="status" aria-live="polite">
+            开始前请启动并登录游戏。采集时需要打开「契约记录 → 全部记录」并逐页翻阅。
+          </p>
+          <p id="capture-error" class="dialog-error" role="alert" hidden></p>
+          <ul id="capture-warnings" class="capture-warnings" hidden></ul>
+        </section>
+        <section class="overview-breakdown">
+          <div class="summary-main">
+            <div class="summary-account">
+              <h2>账号概览</h2>
+              <p id="overview-account" class="subtitle"></p>
+              <p id="overview-note" class="muted overview-note" hidden></p>
+            </div>
+            <div class="stat-strip">
+              <div class="stat-inline"><span id="overview-pulls">0</span><small>总抽数</small></div>
+              <div class="stat-inline"><span id="overview-six-stars">0</span><small>六星获取</small></div>
+              <div class="stat-inline"><span id="overview-on-rate">—</span><small>限定 / 遴选不歪率</small></div>
+            </div>
+            <div class="overview-actions">
+              <button id="export-records" class="secondary-button">导出抽卡记录</button>
+            </div>
           </div>
-        </div>
-        <div class="stat-grid">
-          <article class="stat-card"><span id="overview-pulls">0</span><small>总抽数</small></article>
-          <article class="stat-card"><span id="overview-six-stars">0</span><small>六星获取</small></article>
-          <article class="stat-card"><span id="overview-on-rate">—</span><small>限定 / 遴选不歪率</small></article>
-        </div>
+        </section>
+        <section class="overview-breakdown data-management">
+          <h3>数据管理</h3>
+          <div class="data-row">
+            <div class="data-copy">
+              <strong>最近一次导入</strong>
+              <span id="import-summary">还没有导入记录</span>
+            </div>
+            <div class="data-actions">
+              <button id="undo-import" class="secondary-button danger-button" disabled>撤销上一次导入</button>
+            </div>
+          </div>
+          <div class="data-row">
+            <div class="data-copy">
+              <strong>备份与恢复</strong>
+              <span>备份包含所有账号和抽卡记录，换电脑或重装后可恢复。</span>
+            </div>
+            <div class="data-actions">
+              <button id="export-backup" class="secondary-button">导出备份</button>
+              <button id="import-backup" class="secondary-button">导入备份</button>
+            </div>
+          </div>
+          <div class="data-row">
+            <div class="data-copy">
+              <strong>遇到问题</strong>
+              <span id="error-storage">反馈问题时可以导出一份数据报告给开发者。</span>
+            </div>
+            <div class="data-actions">
+              <button id="export-error-report" class="secondary-button">导出错误信息</button>
+              <button id="clear-error-reports" class="secondary-button">清理历史报错</button>
+            </div>
+          </div>
+        </section>
         <section class="overview-breakdown">
           <h3>各契约类别</h3>
           <div id="overview-groups" class="overview-group-grid"></div>
@@ -89,8 +140,10 @@
       <h2>新建账号</h2>
       <label class="field-label" for="nickname">昵称</label>
       <input id="nickname" name="nickname" required maxlength="40" placeholder="例如：主账号">
-      <label class="field-label" for="uid">UID <span class="muted">可选</span></label>
-      <input id="uid" name="uid" maxlength="40" placeholder="可选">
+      <label class="field-label" for="uid">UID <span class="muted">非必填</span></label>
+      <input id="uid" name="uid" maxlength="40" placeholder="游戏账号 UID">
+      <label class="field-label" for="note">备注 <span class="muted">非必填</span></label>
+      <textarea id="note" name="note" rows="2" maxlength="200" placeholder="例如：国服主号 / 只抽活动"></textarea>
       <p id="account-error" class="dialog-error" role="alert" hidden></p>
       <div class="dialog-actions"><button type="button" id="cancel-account" class="secondary-button">取消</button><button type="submit" class="primary-button">创建</button></div>
     </form>
@@ -116,14 +169,52 @@
       <h2>编辑账号</h2>
       <label class="field-label" for="edit-nickname">昵称</label>
       <input id="edit-nickname" name="nickname" required maxlength="40" placeholder="例如：主账号">
-      <label class="field-label" for="edit-uid">UID <span class="muted">可选</span></label>
-      <input id="edit-uid" name="uid" maxlength="40" placeholder="填写游戏账号 UID">
+      <label class="field-label" for="edit-uid">UID <span class="muted">非必填</span></label>
+      <input id="edit-uid" name="uid" maxlength="40" placeholder="游戏账号 UID">
+      <label class="field-label" for="edit-note">备注 <span class="muted">非必填</span></label>
+      <textarea id="edit-note" name="note" rows="2" maxlength="200" placeholder="例如：国服主号 / 只抽活动"></textarea>
       <p id="edit-account-error" class="dialog-error" role="alert" hidden></p>
       <div class="dialog-actions">
         <button type="button" id="cancel-edit-account" class="secondary-button">取消</button>
         <button type="submit" class="primary-button">保存</button>
       </div>
     </form>
+  </dialog>
+  <dialog id="delete-account-dialog">
+    <div class="dialog-content">
+      <h2>删除账号</h2>
+      <p>确定要删除账号 <strong id="delete-account-name"></strong> 吗？</p>
+      <p class="muted">该账号的全部抽卡记录和更新历史会被永久删除，无法恢复。建议先导出抽卡记录。</p>
+      <p id="delete-account-error" class="dialog-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" id="cancel-delete-account" class="secondary-button">取消</button>
+        <button type="button" id="confirm-delete-account" class="primary-button danger-button">确认删除</button>
+      </div>
+    </div>
+  </dialog>
+  <dialog id="undo-import-dialog">
+    <div class="dialog-content">
+      <h2>撤销上一次导入</h2>
+      <p id="undo-import-summary"></p>
+      <p class="muted">只会移除这次导入新增的记录；如果之后又在游戏里抽过卡并重新采集，请先确认要撤销的是哪一次。</p>
+      <p id="undo-import-error" class="dialog-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" id="cancel-undo-import" class="secondary-button">取消</button>
+        <button type="button" id="confirm-undo-import" class="primary-button danger-button">确认撤销</button>
+      </div>
+    </div>
+  </dialog>
+  <dialog id="clear-errors-dialog">
+    <div class="dialog-content">
+      <h2>清理历史报错信息</h2>
+      <p id="clear-errors-summary"></p>
+      <p class="muted">清理后「导出错误信息」暂时没有可用数据，直到下次采集。问题还没解决前建议先导出。</p>
+      <p id="clear-errors-error" class="dialog-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" id="cancel-clear-errors" class="secondary-button">取消</button>
+        <button type="button" id="confirm-clear-errors" class="primary-button danger-button">确认清理</button>
+      </div>
+    </div>
   </dialog>
   <script src="app.js"></script>
 </body>

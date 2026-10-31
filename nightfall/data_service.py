@@ -90,6 +90,7 @@ def get_dashboard(account_id, db_path="nightfall.db"):
     try:
         rows = db.get_records(account_id)
         account = db.get_account(account_id)
+        last_update = db.get_last_update(account_id)
     finally:
         db.close()
     if account is None:
@@ -131,6 +132,24 @@ def get_dashboard(account_id, db_path="nightfall.db"):
             (len(featured_events) - misses) / len(featured_events)
             if featured_events else None
         ),
+        "last_import": _build_last_import(last_update),
+    }
+
+
+def _build_last_import(last_update):
+    if not last_update:
+        return None
+    update_time = last_update["update_time"]
+    try:
+        display = datetime.fromisoformat(
+            update_time.replace("Z", "+00:00")).astimezone().strftime(
+                "%Y-%m-%d %H:%M")
+    except ValueError:
+        display = update_time
+    return {
+        "update_time": update_time,
+        "display_time": display,
+        "records_added": last_update["records_added"],
     }
 
 

@@ -91,6 +91,27 @@ class DataServiceTests(unittest.TestCase):
         self.assertEqual(export["total_records"], 1)
         self.assertEqual(export["records"][0]["result_id"], 13001062)
 
+    def test_dashboard_reports_the_last_import_for_undo(self):
+        self.assertIsNone(get_dashboard(self.account_id, self.db_path)["last_import"])
+
+        self.db.insert_records(self.account_id, [
+            (30008, 13001062, 1000, 0),
+            (30008, 13001001, 2000, 1),
+        ])
+        self.db.save_update_snapshot(
+            self.account_id, 2, [
+                {"pool_id": 30008, "result_id": 13001062,
+                 "timestamp_ms": 1000, "position": 0},
+                {"pool_id": 30008, "result_id": 13001001,
+                 "timestamp_ms": 2000, "position": 1},
+            ])
+
+        last_import = get_dashboard(self.account_id, self.db_path)["last_import"]
+
+        self.assertEqual(last_import["records_added"], 2)
+        self.assertTrue(last_import["display_time"])
+        self.assertTrue(last_import["update_time"].endswith("Z"))
+
     def test_pulls_over_cap_are_clamped_for_display(self):
         self.db.insert_records(self.account_id, [
             (30001, 13001001, 1000 + index, 70 - index)

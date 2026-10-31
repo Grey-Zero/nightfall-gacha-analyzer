@@ -1,16 +1,19 @@
 """桌面端抽卡记录采集流程。"""
 import threading
 import time
+from datetime import datetime, timezone
 
+from .config import CAPTURES_DIR
 from .database import DatabaseManager
 from .monitor import GachaMonitor
 from .network import detect_game_connections
 
 
 class CaptureService:
-    def __init__(self, db_path, connection_timeout=120):
+    def __init__(self, db_path, connection_timeout=120, captures_dir=None):
         self.db_path = db_path
         self.connection_timeout = connection_timeout
+        self.captures_dir = captures_dir or CAPTURES_DIR
         self._lock = threading.RLock()
         self._stop_event = threading.Event()
         self._worker = None
@@ -138,6 +141,11 @@ class CaptureService:
                         error=str(error),
                     )
                 try:
+                    self._preserve_latest_capture(monitor, account_id)
+                except Exception:
+                    # 保存最近抓包只是附属功能，失败不影响本次采集结果
+                    pass
+                try:
                     monitor.cleanup()
                 except OSError as error:
                     self._set_state(
@@ -151,6 +159,24 @@ class CaptureService:
                 message=result["message"],
                 result=result,
             )
+
+    def _preserve_latest_capture(self, monitor, account_id):
+        """覆盖保存本次抓包，供「分析最近抓包」使用"""
+        preserve = getattr(monitor, "preserve_latest", None)
+        if preserve is None:
+            return None
+        metadata = {
+            "captured_at": datetime.now(timezone.utc).isoformat().replace(
+                "+00:00", "Z"),
+            "account_id": account_id,
+        }
+        capture_metadata = getattr(monitor, "get_capture_metadata", None)
+        if capture_metadata:
+            metadata.update(capture_metadata())
+        stats_getter = getattr(monitor, "get_extract_stats", None)
+        if stats_getter:
+            metadata["extract_stats"] = stats_getter()
+        return preserve(self.captures_dir, metadata=metadata)
 
     def _reject(self, monitor, diagnostics, reason):
         """拒绝导入并保留本次抓包，便于定位解析问题"""

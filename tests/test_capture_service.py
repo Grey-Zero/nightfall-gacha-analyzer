@@ -13,6 +13,7 @@ class FakeMonitor:
         self.records = records
         self.extract_stats = extract_stats
         self.recording = False
+        self.preserved = None
 
     def start(self):
         self.recording = True
@@ -43,6 +44,13 @@ class FakeMonitor:
         if self.records:
             return {"total": len(self.records)}
         return {"responses": 3, "offset_mismatch": 2, "unpaired": 1}
+
+    def get_capture_metadata(self):
+        return {"endpoints": [["192.0.2.1", 9000]], "interface": "test"}
+
+    def preserve_latest(self, target_dir, metadata=None):
+        self.preserved = (target_dir, metadata)
+        return None
 
     def cleanup(self):
         pass
@@ -137,6 +145,26 @@ class CaptureServiceTests(unittest.TestCase):
             self.assertEqual(db.get_record_count(self.account_id), 0)
         finally:
             db.close()
+
+    def test_latest_capture_is_preserved_after_capture(self):
+        monitor = FakeMonitor([(30001, 13001017, 1000, 0)])
+        service = CaptureService(
+            self.db_path, captures_dir=Path(self.temp_dir.name))
+        with patch(
+            "nightfall.capture_service.detect_game_connections",
+            return_value={"endpoints": [("192.0.2.1", 9000)], "interface": "test"},
+        ), patch("nightfall.capture_service.GachaMonitor", return_value=monitor):
+            service.start(self.account_id)
+            self.wait_for_status(service, "recording")
+            service.stop()
+            self.wait_for_status(service, "completed")
+
+        self.assertIsNotNone(monitor.preserved)
+        target_dir, metadata = monitor.preserved
+        self.assertEqual(str(target_dir), self.temp_dir.name)
+        self.assertEqual(metadata["account_id"], self.account_id)
+        self.assertEqual(metadata["endpoints"], [["192.0.2.1", 9000]])
+        self.assertEqual(metadata["extract_stats"]["total"], 1)
 
     def test_cancel_waiting_for_game_connection(self):
         service = CaptureService(self.db_path)

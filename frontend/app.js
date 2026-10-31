@@ -18,9 +18,21 @@ const state = {
   showDates: localStorage.getItem("nightfall-show-dates") === "true",
   showFiveStars: localStorage.getItem("nightfall-show-five-stars") === "true",
   capture: { status: "idle", message: "", captured_bytes: 0, result: null, error: null },
+  errorStorage: { files: 0, bytes: 0, latest: null },
+  update: null,
+  dismissedVersion: null,
 };
 const $ = (selector) => document.querySelector(selector);
 let capturePollTimer = null;
+
+const CAPTURE_BUSY = ["waiting", "recording", "processing"];
+const captureBusy = () => CAPTURE_BUSY.includes(state.capture.status);
+
+function formatBytes(bytes) {
+  if (!bytes) return "0 KB";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
 
 async function api(method, payload = {}) {
   if (!window.pywebview?.api) {
@@ -43,9 +55,11 @@ function showStatus(message = "", isError = false) {
 function setCaptureState(capture) {
   state.capture = capture;
   const action = $("#capture-action");
-  const inProgress = ["waiting", "recording", "processing"].includes(capture.status);
+  const inProgress = captureBusy();
   action.disabled = capture.status === "processing" || !$("#account-select").value;
   $("#account-select").disabled = inProgress;
+  $("#delete-account").disabled = inProgress || !$("#account-select").value;
+  renderDataManagement();
 
   if (capture.status === "waiting") action.textContent = "取消等待";
   else if (capture.status === "recording") action.textContent = "停止并解析";
@@ -99,8 +113,9 @@ async function pollCaptureState() {
     if (["completed", "error", "cancelled", "idle"].includes(capture.status)) {
       clearInterval(capturePollTimer);
       capturePollTimer = null;
-      if (capture.status === "completed" && capture.result?.inserted) {
-        await loadDashboard();
+      if (capture.status === "completed") {
+        if (capture.result?.inserted) await loadDashboard();
+        await refreshErrorStorage();
       }
       return;
     }
@@ -267,9 +282,36 @@ function render() {
   $("#total-records").textContent = state.dashboard?.total_records || 0;
   $("#overview-page").hidden = state.page !== "home";
   $("#records-page").hidden = state.page !== "records";
+  $("#delete-account").disabled = captureBusy() || !$("#account-select").value;
   renderNavigation();
   renderOverview();
+  renderDataManagement();
   renderGroups();
+}
+
+function renderDataManagement() {
+  const busy = captureBusy();
+  const lastImport = state.dashboard?.last_import;
+  const undoButton = $("#undo-import");
+  if (!lastImport) {
+    $("#import-summary").textContent = "还没有导入记录";
+    undoButton.disabled = true;
+  } else {
+    $("#import-summary").textContent = lastImport.records_added
+      ? `${lastImport.display_time} 新增 ${lastImport.records_added} 条记录`
+      : `${lastImport.display_time} 导入（没有新增记录）`;
+    undoButton.disabled = busy || !lastImport.records_added;
+  }
+
+  const storage = state.errorStorage || { files: 0, bytes: 0 };
+  const hasFiles = storage.files > 0;
+  $("#error-storage").textContent = hasFiles
+    ? `已保存 ${storage.files} 个历史文件（约 ${formatBytes(storage.bytes)}）。反馈问题时导出给开发者，解决后可清理。`
+    : "暂无历史文件，导出时会附上程序信息和最近一次采集结果。";
+  $("#export-error-report").disabled = busy;
+  $("#clear-error-reports").disabled = !hasFiles || busy;
+  $("#export-backup").disabled = !state.accounts.length || busy;
+  $("#import-backup").disabled = busy;
 }
 
 function renderOverview() {
@@ -277,13 +319,15 @@ function renderOverview() {
   $("#overview-account").textContent = dashboard?.account
     ? `${dashboard.account.nickname}${dashboard.account.uid ? ` · UID ${dashboard.account.uid}` : ""}`
     : state.accounts.length ? "请选择账号以查看分析" : "请先新建账号";
+  const note = $("#overview-note");
+  note.textContent = dashboard?.account?.note || "";
+  note.hidden = !dashboard?.account?.note;
   $("#overview-pulls").textContent = dashboard?.total_records || 0;
   $("#overview-six-stars").textContent = dashboard?.total_six_stars || 0;
   $("#overview-on-rate").textContent = dashboard?.on_rate == null
     ? "—"
     : `${(dashboard.on_rate * 100).toFixed(1)}%`;
   $("#export-records").disabled = !dashboard;
-  $("#export-diagnostics").disabled = !dashboard;
 
   const groupContainer = $("#overview-groups");
   groupContainer.replaceChildren();
@@ -337,11 +381,68 @@ async function loadDashboard() {
   }
   try {
     state.dashboard = await api("get_dashboard", { account_id: accountId });
-    state.category = "overview";
     showStatus();
     render();
   } catch (error) {
     showStatus(`读取抽卡记录失败：${error.message}`, true);
+  }
+}
+
+function renderAccountNote() {
+  const account = state.accounts.find(
+    (item) => String(item.account_id) === $("#account-select").value,
+  );
+  const note = $("#account-note");
+  note.textContent = account?.note || "";
+  note.hidden = !account?.note;
+}
+
+async function refreshErrorStorage() {
+  try {
+    state.errorStorage = await api("get_error_storage_info");
+  } catch (error) {
+    state.errorStorage = { files: 0, bytes: 0 };
+  }
+  renderDataManagement();
+}
+
+function renderUpdateBanner() {
+  const banner = $("#update-banner");
+  const update = state.update;
+  if (!update?.available || update.dismissed) {
+    banner.hidden = true;
+    return;
+  }
+  $("#update-title").textContent = `发现新版本 ${update.latest}`;
+  $("#update-detail").textContent = `当前版本 ${update.current}，可在发布页下载新的压缩包并覆盖程序文件夹。`;
+  banner.hidden = false;
+}
+
+async function checkForUpdate({ silent = true } = {}) {
+  try {
+    const result = await api("check_update");
+    state.update = {
+      ...result,
+      dismissed: Boolean(result.latest) && state.dismissedVersion === result.latest,
+    };
+    if (!silent) {
+      if (result.error) showStatus(result.error, false);
+      else if (result.available) showStatus(`发现新版本 ${result.latest}。`);
+      else showStatus(`已是最新版本（${result.current}）。`);
+    }
+    renderUpdateBanner();
+  } catch (error) {
+    if (!silent) showStatus(`检查更新失败：${error.message}`, true);
+  }
+}
+
+async function loadAppInfo() {
+  try {
+    const info = await api("get_app_info");
+    $("#app-version").textContent = `版本 ${info.version}`;
+    $("#app-version").title = info.data_dir || "";
+  } catch (error) {
+    $("#app-version").textContent = "";
   }
 }
 
@@ -361,15 +462,17 @@ async function loadAccounts(preferredAccountId = null) {
     if (preferredAccountId !== null) {
       select.value = String(preferredAccountId);
     }
+    renderAccountNote();
     if (state.accounts.length) {
       await loadDashboard();
     } else {
       state.dashboard = null;
       render();
     }
+    await refreshErrorStorage();
     const capture = await api("get_capture_state");
     setCaptureState(capture);
-    if (["waiting", "recording", "processing"].includes(capture.status)) {
+    if (captureBusy()) {
       beginCapturePolling();
     }
   } catch (error) {
@@ -385,7 +488,10 @@ $("#theme-toggle").textContent = document.body.dataset.theme === "night"
   ? "切换至白天"
   : "切换至夜间";
 
-$("#account-select").addEventListener("change", loadDashboard);
+$("#account-select").addEventListener("change", () => {
+  renderAccountNote();
+  loadDashboard();
+});
 $("#theme-toggle").addEventListener("click", () => {
   const night = document.body.dataset.theme !== "night";
   document.body.dataset.theme = night ? "night" : "day";
@@ -410,6 +516,7 @@ $("#edit-account").addEventListener("click", () => {
   $("#edit-account-error").hidden = true;
   $("#edit-nickname").value = selectedAccount.nickname;
   $("#edit-uid").value = selectedAccount.uid || "";
+  $("#edit-note").value = selectedAccount.note || "";
   $("#edit-account-dialog").showModal();
 });
 $("#cancel-edit-account").addEventListener("click", () => $("#edit-account-dialog").close());
@@ -418,6 +525,7 @@ $("#edit-account-form").addEventListener("submit", async (event) => {
   const accountId = Number($("#account-select").value);
   const nickname = $("#edit-nickname").value.trim();
   const uid = $("#edit-uid").value.trim();
+  const note = $("#edit-note").value.trim();
   const error = $("#edit-account-error");
   error.textContent = "";
   error.hidden = true;
@@ -431,13 +539,52 @@ $("#edit-account-form").addEventListener("submit", async (event) => {
       account_id: accountId,
       nickname,
       uid: uid || null,
+      note: note || null,
     });
     $("#edit-account-dialog").close();
-    showStatus("账号信息已更新。");
     await loadAccounts(accountId);
+    showStatus("账号信息已更新。");
   } catch (updateError) {
     error.textContent = `保存账号信息失败：${updateError.message}`;
     error.hidden = false;
+  }
+});
+$("#delete-account").addEventListener("click", () => {
+  const selectedAccount = state.accounts.find(
+    (account) => String(account.account_id) === $("#account-select").value,
+  );
+  if (!selectedAccount) {
+    showStatus("请先选择要删除的账号。", true);
+    return;
+  }
+  $("#delete-account-name").textContent = selectedAccount.uid
+    ? `${selectedAccount.nickname} · UID ${selectedAccount.uid}`
+    : selectedAccount.nickname;
+  $("#delete-account-error").textContent = "";
+  $("#delete-account-error").hidden = true;
+  $("#delete-account-dialog").showModal();
+});
+$("#cancel-delete-account").addEventListener(
+  "click", () => $("#delete-account-dialog").close(),
+);
+$("#confirm-delete-account").addEventListener("click", async () => {
+  const button = $("#confirm-delete-account");
+  const error = $("#delete-account-error");
+  error.textContent = "";
+  error.hidden = true;
+  button.disabled = true;
+  try {
+    await api("delete_account", {
+      account_id: Number($("#account-select").value),
+    });
+    $("#delete-account-dialog").close();
+    await loadAccounts();
+    showStatus("账号已删除。");
+  } catch (deleteError) {
+    error.textContent = `删除账号失败：${deleteError.message}`;
+    error.hidden = false;
+  } finally {
+    button.disabled = false;
   }
 });
 $("#capture-action").addEventListener("click", async () => {
@@ -481,18 +628,138 @@ $("#export-records").addEventListener("click", async () => {
     showStatus(`导出抽卡记录失败：${error.message}`, true);
   }
 });
-$("#export-diagnostics").addEventListener("click", async () => {
+$("#export-backup").addEventListener("click", async () => {
   try {
-    const result = await api("export_diagnostics", {
-      account_id: Number($("#account-select").value),
-    });
-    showStatus(result.cancelled ? "已取消导出诊断信息。" : `诊断信息已导出：${result.path}`);
+    const result = await api("export_backup");
+    showStatus(result.cancelled
+      ? "已取消导出备份。"
+      : `备份已导出：${result.path}（${result.account_count} 个账号，${result.record_count} 条记录）`);
   } catch (error) {
-    showStatus(`导出诊断信息失败：${error.message}`, true);
+    showStatus(`导出备份失败：${error.message}`, true);
   }
 });
-$("#cancel-capture").addEventListener("click", () => $("#capture-dialog").close());
-$("#confirm-capture").addEventListener("click", async () => {
+$("#import-backup").addEventListener("click", async () => {
+  const button = $("#import-backup");
+  button.disabled = true;
+  try {
+    const result = await api("import_backup");
+    if (result.cancelled) {
+      showStatus("已取消导入备份。");
+      return;
+    }
+    await loadAccounts();
+    const parts = [
+      `新增账号 ${result.accounts_created} 个`,
+      `匹配已有账号 ${result.accounts_matched} 个`,
+      `新增记录 ${result.records_inserted} 条`,
+      `跳过重复 ${result.records_skipped} 条`,
+    ];
+    let message = `备份已导入：${parts.join("，")}。`;
+    if (result.errors?.length) {
+      message += ` 有 ${result.errors.length} 个账号未能导入：${result.errors.join("；")}`;
+    }
+    showStatus(message, Boolean(result.errors?.length));
+  } catch (error) {
+    showStatus(`导入备份失败：${error.message}`, true);
+  } finally {
+    renderDataManagement();
+  }
+});
+$("#undo-import").addEventListener("click", () => {
+  const lastImport = state.dashboard?.last_import;
+  if (!lastImport) return;
+  $("#undo-import-summary").textContent =
+    `将撤销 ${lastImport.display_time} 的导入，移除当时新增的 ${lastImport.records_added} 条记录。`;
+  $("#undo-import-error").textContent = "";
+  $("#undo-import-error").hidden = true;
+  $("#undo-import-dialog").showModal();
+});
+$("#cancel-undo-import").addEventListener(
+  "click", () => $("#undo-import-dialog").close(),
+);
+$("#confirm-undo-import").addEventListener("click", async () => {
+  const button = $("#confirm-undo-import");
+  const error = $("#undo-import-error");
+  error.textContent = "";
+  error.hidden = true;
+  button.disabled = true;
+  try {
+    const result = await api("undo_last_import", {
+      account_id: Number($("#account-select").value),
+    });
+    $("#undo-import-dialog").close();
+    await loadDashboard();
+    showStatus(`已撤销上一次导入，移除 ${result.deleted} 条记录。`);
+  } catch (undoError) {
+    error.textContent = `撤销失败：${undoError.message}`;
+    error.hidden = false;
+  } finally {
+    button.disabled = false;
+  }
+});
+$("#export-error-report").addEventListener("click", async () => {
+  const button = $("#export-error-report");
+  button.disabled = true;
+  showStatus("正在整理错误信息…");
+  try {
+    const result = await api("export_error_report");
+    showStatus(result.cancelled
+      ? "已取消导出错误信息。"
+      : `错误信息已导出：${result.path}`);
+  } catch (error) {
+    showStatus(`导出错误信息失败：${error.message}`, true);
+  } finally {
+    renderDataManagement();
+  }
+});
+$("#clear-error-reports").addEventListener("click", () => {
+  const storage = state.errorStorage || {};
+  $("#clear-errors-summary").textContent =
+    `将删除 ${storage.files || 0} 个历史文件，释放约 ${formatBytes(storage.bytes || 0)}。`;
+  $("#clear-errors-error").textContent = "";
+  $("#clear-errors-error").hidden = true;
+  $("#clear-errors-dialog").showModal();
+});
+$("#cancel-clear-errors").addEventListener(
+  "click", () => $("#clear-errors-dialog").close(),
+);
+$("#confirm-clear-errors").addEventListener("click", async () => {
+  const button = $("#confirm-clear-errors");
+  const error = $("#clear-errors-error");
+  error.textContent = "";
+  error.hidden = true;
+  button.disabled = true;
+  try {
+    const result = await api("clear_error_reports");
+    $("#clear-errors-dialog").close();
+    await refreshErrorStorage();
+    showStatus(
+      result.deleted
+        ? `已清理 ${result.deleted} 个历史文件，释放约 ${formatBytes(result.freed_bytes)}。`
+        : "没有需要清理的历史文件。",
+    );
+  } catch (clearError) {
+    error.textContent = `清理失败：${clearError.message}`;
+    error.hidden = false;
+  } finally {
+    button.disabled = false;
+  }
+});
+$("#open-update").addEventListener("click", async () => {
+  const update = state.update;
+  try {
+    await api("open_release_page", { url: update?.url });
+    showStatus("已在浏览器中打开下载页。");
+  } catch (error) {
+    showStatus(`打开下载页失败：${error.message}`, true);
+  }
+});
+$("#dismiss-update").addEventListener("click", () => {
+  if (state.update?.latest) state.dismissedVersion = state.update.latest;
+  state.update = { ...state.update, dismissed: true };
+  renderUpdateBanner();
+});
+$("#cancel-capture").addEventListener("click", () => $("#capture-dialog").close());$("#confirm-capture").addEventListener("click", async () => {
   const confirmButton = $("#confirm-capture");
   confirmButton.disabled = true;
   try {
@@ -513,14 +780,19 @@ $("#account-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const nickname = $("#nickname").value.trim();
   const uid = $("#uid").value.trim();
+  const note = $("#note").value.trim();
   if (!nickname) return;
   const error = $("#account-error");
   error.hidden = true;
   try {
-    await api("create_account", { nickname, uid: uid || null });
+    const result = await api("create_account", {
+      nickname,
+      uid: uid || null,
+      note: note || null,
+    });
     $("#new-account-dialog").close();
     $("#account-form").reset();
-    await loadAccounts();
+    await loadAccounts(result?.account_id ?? null);
   } catch (error) {
     const message = $("#account-error");
     message.textContent = `创建账号失败：${error.message}`;
@@ -528,4 +800,8 @@ $("#account-form").addEventListener("submit", async (event) => {
   }
 });
 
-window.addEventListener("pywebviewready", () => loadAccounts());
+window.addEventListener("pywebviewready", async () => {
+  await loadAppInfo();
+  await loadAccounts();
+  checkForUpdate();
+});

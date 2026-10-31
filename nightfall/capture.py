@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """抓包录制与解析（TShark 写文件，事后解析，避免实时处理丢包）"""
+import json
 import shutil
 import subprocess
 import tempfile
@@ -104,6 +105,37 @@ def assemble_streams(segments, endpoints):
                 item["incomplete"] = True
         streams.append(item)
 
+    return streams
+
+
+def assemble_streams_by_direction(segments):
+    """在不认识服务器地址的情况下，按 TCP 流和方向重组字节流
+
+    分析历史抓包时不知道当时的服务器端点，先按 (源, 目的) 分组，
+    再由调用方根据帧内容判断哪个方向是服务端。
+
+    返回: [{"stream": id, "directions": [
+                {"src": (ip, port), "dst": (ip, port), "data": bytes, "holes": n},
+                ...]}, ...]
+    """
+    collected = {}
+    for stream_id, src, dst, seq, payload in segments:
+        directions = collected.setdefault(stream_id, {})
+        # 同一方向同一序号只保留首次收到的负载（重传）
+        directions.setdefault((src, dst), {}).setdefault(seq, payload)
+
+    streams = []
+    for stream_id in sorted(collected):
+        item = {"stream": stream_id, "directions": []}
+        for (src, dst), segments_by_seq in collected[stream_id].items():
+            data, holes = _join_segments(segments_by_seq)
+            item["directions"].append({
+                "src": src,
+                "dst": dst,
+                "data": data,
+                "holes": holes,
+            })
+        streams.append(item)
     return streams
 
 
@@ -256,16 +288,26 @@ class PacketCapture:
         segments = read_tcp_segments(self.tshark_path, pcap_path)
         return assemble_streams(segments, self.endpoints)
 
-    def preserve(self, target_dir):
-        """把本次抓包另存一份用于排查，返回文件路径"""
+    def preserve(self, target_dir, filename=None, metadata=None):
+        """把本次抓包另存一份用于排查，返回文件路径
+
+        filename 为空时使用时间戳命名；metadata 会写成同名 .json，
+        记录当时的服务器端点等信息，便于事后分析。
+        """
         if not self.pcap_path or not Path(self.pcap_path).exists():
             return None
 
         target_dir = Path(target_dir)
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
-            target = target_dir / time.strftime("capture-%Y%m%d-%H%M%S.pcap")
+            name = filename or time.strftime("capture-%Y%m%d-%H%M%S.pcap")
+            target = target_dir / name
             shutil.copy2(self.pcap_path, target)
+            if metadata is not None:
+                target.with_suffix(".json").write_text(
+                    json.dumps(metadata, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
         except OSError:
             return None
         return str(target)

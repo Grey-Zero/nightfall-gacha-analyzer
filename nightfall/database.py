@@ -33,6 +33,8 @@ class DatabaseManager:
 
     def _init_database(self):
         """初始化数据库（三张表）"""
+        if str(self.db_path) != ":memory:":
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
@@ -43,6 +45,7 @@ class DatabaseManager:
                 account_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nickname TEXT NOT NULL UNIQUE,
                 uid TEXT,
+                note TEXT,
                 created_at TEXT NOT NULL,
                 last_active_at TEXT NOT NULL
             )
@@ -94,29 +97,42 @@ class DatabaseManager:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_updates_account "
                      "ON updates(account_id, update_time DESC)")
 
+        self._migrate(conn)
         conn.commit()
         return conn
 
+    @staticmethod
+    def _migrate(conn):
+        """为旧数据库补齐后续版本新增的列"""
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(accounts)")
+        }
+        if "note" not in columns:
+            conn.execute("ALTER TABLE accounts ADD COLUMN note TEXT")
+
     # ==================== 账号管理 ====================
 
-    def create_account(self, nickname, uid=None):
+    def create_account(self, nickname, uid=None, note=None):
         """创建账号，返回 account_id"""
         now = _utc_now()
-        cursor = self.conn.execute("""
-            INSERT INTO accounts (nickname, uid, created_at, last_active_at)
-            VALUES (?, ?, ?, ?)
-        """, (nickname, uid, now, now))
+        try:
+            cursor = self.conn.execute("""
+                INSERT INTO accounts (nickname, uid, note, created_at, last_active_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (nickname, uid, note, now, now))
+        except sqlite3.IntegrityError as error:
+            raise ValueError("该昵称已被其他账号使用") from error
         self.conn.commit()
         return cursor.lastrowid
 
-    def update_account(self, account_id, nickname, uid=None):
-        """更新账号昵称和 UID，返回是否存在该账号"""
+    def update_account(self, account_id, nickname, uid=None, note=None):
+        """更新账号昵称、UID 和备注，返回是否存在该账号"""
         try:
             cursor = self.conn.execute("""
                 UPDATE accounts
-                SET nickname = ?, uid = ?
+                SET nickname = ?, uid = ?, note = ?
                 WHERE account_id = ?
-            """, (nickname, uid, account_id))
+            """, (nickname, uid, note, account_id))
         except sqlite3.IntegrityError as error:
             raise ValueError("该昵称已被其他账号使用") from error
         self.conn.commit()
@@ -125,7 +141,7 @@ class DatabaseManager:
     def get_all_accounts(self):
         """获取所有账号，按最近活跃排序"""
         cursor = self.conn.execute("""
-            SELECT account_id, nickname, uid, created_at, last_active_at
+            SELECT account_id, nickname, uid, note, created_at, last_active_at
             FROM accounts
             ORDER BY last_active_at DESC
         """)
@@ -154,9 +170,11 @@ class DatabaseManager:
         return row[0] if row else None
 
     def delete_account(self, account_id):
-        """删除账号（级联删除记录和更新历史）"""
-        self.conn.execute("DELETE FROM accounts WHERE account_id = ?", (account_id,))
+        """删除账号（级联删除记录和更新历史），返回是否存在该账号"""
+        cursor = self.conn.execute(
+            "DELETE FROM accounts WHERE account_id = ?", (account_id,))
         self.conn.commit()
+        return cursor.rowcount > 0
 
     # ==================== 记录管理 ====================
 
@@ -396,7 +414,7 @@ class DatabaseManager:
         cursor = self.conn.execute("""
             SELECT * FROM updates
             WHERE account_id = ?
-            ORDER BY update_time DESC
+            ORDER BY update_time DESC, update_id DESC
             LIMIT 1
         """, (account_id,))
         row = cursor.fetchone()
