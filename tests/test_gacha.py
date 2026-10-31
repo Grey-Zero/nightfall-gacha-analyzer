@@ -1,10 +1,40 @@
 import unittest
 from unittest.mock import patch
 
-from nightfall.gacha import collect_query0_pages
+from nightfall.gacha import (
+    build_request_index,
+    collect_query0_pages,
+)
 
 
 class GachaPageConsistencyTests(unittest.TestCase):
+    def test_reused_seq_is_matched_in_request_order(self):
+        with patch(
+            "nightfall.gacha.parse_c08_request",
+            side_effect=[
+                (62, 0, 0),
+                (62, 0, 1225),
+            ],
+        ):
+            requests, failed = build_request_index([b"first", b"second"])
+
+        page_zero = [(30008, 13001039, 1000)]
+        page_1225 = [(30008, 13001044, 2000)]
+        with patch(
+            "nightfall.gacha.parse_c08_response",
+            side_effect=[
+                (0, 1226, page_zero),
+                (1225, 1226, page_1225),
+            ],
+        ):
+            pages, stats = collect_query0_pages(
+                [(62, b"first-response", 0), (62, b"second-response", 0)],
+                requests,
+            )
+
+        self.assertEqual(failed, 0)
+        self.assertEqual(pages, {0: page_zero, 1225: page_1225})
+
     def test_identical_duplicate_page_is_kept_once(self):
         page = [(30008, 13001039, 1000)]
         with patch(
@@ -33,16 +63,18 @@ class GachaPageConsistencyTests(unittest.TestCase):
                     {1: (0, 0), 2: (0, 0)},
                 )
 
-    def test_response_offset_must_match_its_request(self):
+    def test_response_offset_mismatch_is_skipped(self):
         with patch(
             "nightfall.gacha.parse_c08_response",
             return_value=(10, 11, [(30008, 13001039, 1000)]),
         ):
-            with self.assertRaisesRegex(ValueError, "请求 offset=0"):
-                collect_query0_pages(
-                    [(1, b"wrong-offset", 0)],
-                    {1: (0, 0)},
-                )
+            pages, stats = collect_query0_pages(
+                [(1, b"wrong-offset", 0)],
+                {1: (0, 0)},
+            )
+
+        self.assertEqual(pages, {})
+        self.assertEqual(stats["offset_mismatch"], 1)
 
     def test_total_must_remain_stable_during_capture(self):
         with patch(

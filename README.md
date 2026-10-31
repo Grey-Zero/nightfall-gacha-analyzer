@@ -36,7 +36,15 @@ Windows 桌面窗口使用 `frontend/assets/nightfall.ico` 作为原生窗口图
 
 发行包内已捆绑 TShark，程序会优先使用 `tshark/tshark.exe`。项目源码目录中的 `tshark/` 为本地构建附件，已加入 `.gitignore`，源码不直接提交第三方二进制文件。仍需在 Windows 上安装 Npcap 捕获驱动；若系统已有 Npcap，可以无需额外安装。
 
-## 安装与运行
+## 下载使用
+
+在 GitHub Releases 下载最新版 ZIP，解压后运行 `NightfallGachaAnalyzer.exe`。
+
+首次使用需要安装 Npcap，然后启动并登录游戏。在工具中选择账号并点击「开始采集记录」，再到游戏的「契约记录 → 全部记录」逐页翻阅，最后点击「停止并解析」。
+
+采集到的记录和账号数据保存在本机，不会上传到服务器。
+
+## 从源码运行
 
 在项目根目录打开 PowerShell：
 
@@ -48,6 +56,8 @@ python desktop.py
 ```
 
 首次运行会在项目根目录创建本地数据库 `nightfall.db`。启动后创建或选择账号，再开始采集。
+
+`requirements.txt` 是运行所需依赖；`requirements-dev.txt` 是开发所需依赖，包含测试和 PyInstaller，并通过 `-r requirements.txt` 自动包含运行依赖。
 
 ## 构建 Windows 发行目录
 
@@ -71,13 +81,3 @@ python -m pytest tests -q
 
 测试源码集中在 `tests/`。测试不需要真实账号数据库或原始抓包文件；真实抓包附件不会放入仓库。
 
-## Git 提交前检查
-
-当前仓库忽略本地数据库、配置、抓包/导出附件、构建产物和 Python 缓存。请在初始化 Git 后检查待提交文件：
-
-```powershell
-git status --short
-git check-ignore -v nightfall.db config.json captures\gacha.yaml dist\NightfallClicker.exe
-```
-
-应提交应用源码、前端、卡牌/卡池元数据、测试和依赖清单；不要提交真实用户的数据库、UID、原始网络抓包或诊断导出文件。

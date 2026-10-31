@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """抽卡记录提取：请求响应配对、只保留「全部记录」查询、展开分页"""
-from collections import Counter
+from collections import Counter, deque
 
 from .protocol import (
     CMD_GACHA_HISTORY,
@@ -84,8 +84,9 @@ def build_request_index(client_bodies):
         if pool_filter is None:
             failed += 1
             continue
-        # seq 重复时后者覆盖前者（同一 seq 不应对应不同查询）
-        requests[seq] = (pool_filter, req_offset)
+        # 同一 TCP 连接中 seq 可以复用；同序号请求按到达顺序排队，
+        # 响应按服务器返回顺序逐个消费，避免后一次请求覆盖前一次。
+        requests.setdefault(seq, deque()).append((pool_filter, req_offset))
 
     return requests, failed
 
@@ -125,12 +126,30 @@ def collect_query0_pages(server_frames, requests):
             stats['bad_frames'] += 1
             continue
 
-        request = requests.get(seq)
+        request_queue = requests.get(seq)
 
-        if request is None:
+        if request_queue is None:
             # 配不上请求：请求发生在录制开始之前，或 seq 解析有误
             stats['unpaired'] += 1
             continue
+
+        if hasattr(request_queue, "popleft"):
+            matched_index = None
+            for index, candidate in enumerate(request_queue):
+                candidate_pool, candidate_offset = candidate
+                if candidate_offset == offset:
+                    matched_index = index
+                    break
+
+            if matched_index is None:
+                stats['offset_mismatch'] += 1
+                continue
+
+            request = request_queue[matched_index]
+            del request_queue[matched_index]
+        else:
+            # 向前兼容测试和外部调用方传入普通 dict/tuple
+            request = request_queue
 
         pool_filter, requested_offset = request
         if pool_filter != QUERY_ALL:
@@ -139,11 +158,8 @@ def collect_query0_pages(server_frames, requests):
             continue
 
         if requested_offset is not None and offset != requested_offset:
-            raise ValueError(
-                f"抽卡历史请求 offset={requested_offset}，"
-                f"响应却返回 offset={offset}（seq={seq}）；"
-                "请求响应配对不一致，本次未导入。"
-            )
+            stats['offset_mismatch'] += 1
+            continue
 
         previous_total = stats.get('total')
         if previous_total is not None and previous_total != total:
