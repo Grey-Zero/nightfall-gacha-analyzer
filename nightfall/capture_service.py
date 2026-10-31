@@ -153,8 +153,45 @@ class CaptureService:
             )
 
     def _save_records(self, account_id, records, monitor):
+        diagnostics_getter = getattr(monitor, "get_extract_stats", None)
+        diagnostics = diagnostics_getter() if diagnostics_getter else {}
+        gaps = diagnostics.get("gaps", [])
+        if records and gaps:
+            gap_text = "、".join(
+                f"{start}-{end}" for start, end in gaps
+            )
+            return {
+                "records": 0,
+                "inserted": 0,
+                "duplicated": 0,
+                "server_total": monitor.get_server_total(),
+                "single_pool_queries": monitor.get_single_pool_count(),
+                "warnings": [],
+                "diagnostics": diagnostics,
+                "message": (
+                    "没有导入记录：抓取到的分页中存在漏页"
+                    f"（异常区间：{gap_text}）。请重新完整采集"
+                    "「契约记录 → 全部记录」，逐页翻到最后后停止。"
+                ),
+            }
+
         if not records:
             single_pool_count = monitor.get_single_pool_count()
+            diagnostics_getter = getattr(monitor, "get_extract_stats", None)
+            diagnostics = diagnostics_getter() if diagnostics_getter else {}
+            mismatch_count = diagnostics.get("offset_mismatch", 0)
+            unpaired_count = diagnostics.get("unpaired", 0)
+            bad_frame_count = diagnostics.get("bad_frames", 0)
+            response_count = diagnostics.get("responses", 0)
+            details = []
+            if mismatch_count:
+                details.append(f"{mismatch_count} 个响应与请求 offset 不一致")
+            if unpaired_count:
+                details.append(f"{unpaired_count} 个响应没有找到请求")
+            if bad_frame_count:
+                details.append(f"{bad_frame_count} 个响应帧不完整或无法识别")
+            if response_count:
+                details.append(f"共解析到 {response_count} 个抽卡响应")
             if single_pool_count:
                 message = (
                     "没有导入记录：抓到了单卡池筛选请求。请重新采集，"
@@ -165,28 +202,16 @@ class CaptureService:
                     "没有解析到记录。请确认采集期间确实打开并翻阅了"
                     "「契约记录 → 全部记录」。"
                 )
-            diagnostics = (
-                monitor.get_parse_diagnostics()
-                if hasattr(monitor, "get_parse_diagnostics")
-                else {}
-            )
-            warnings = []
-            if diagnostics:
-                warnings.append(
-                    "解析统计："
-                    f"响应 {diagnostics.get('responses', 0)}、"
-                    f"请求 {diagnostics.get('requests', 0)}、"
-                    f"未配对 {diagnostics.get('unpaired', 0)}、"
-                    f"offset错配 {diagnostics.get('offset_mismatch', 0)}、"
-                    f"无效帧 {diagnostics.get('bad_frames', 0)}。"
-                )
+            if details:
+                message += "\n诊断：" + "；".join(details) + "。"
             return {
                 "records": 0,
                 "inserted": 0,
                 "duplicated": 0,
                 "server_total": monitor.get_server_total(),
                 "single_pool_queries": single_pool_count,
-                "warnings": warnings,
+                "warnings": [],
+                "diagnostics": diagnostics,
                 "message": message,
             }
 

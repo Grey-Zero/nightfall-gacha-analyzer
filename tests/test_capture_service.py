@@ -9,8 +9,9 @@ from nightfall.database import DatabaseManager
 
 
 class FakeMonitor:
-    def __init__(self, records):
+    def __init__(self, records, extract_stats=None):
         self.records = records
+        self.extract_stats = extract_stats
         self.recording = False
 
     def start(self):
@@ -33,6 +34,13 @@ class FakeMonitor:
 
     def get_server_total(self):
         return len(self.records)
+
+    def get_extract_stats(self):
+        if self.extract_stats is not None:
+            return self.extract_stats
+        if self.records:
+            return {"total": len(self.records)}
+        return {"responses": 3, "offset_mismatch": 2, "unpaired": 1}
 
     def cleanup(self):
         pass
@@ -78,6 +86,29 @@ class CaptureServiceTests(unittest.TestCase):
         try:
             self.assertEqual(db.get_record_count(self.account_id), 1)
             self.assertIsNotNone(db.get_last_update(self.account_id))
+        finally:
+            db.close()
+
+    def test_gap_pages_are_not_imported(self):
+        monitor = FakeMonitor(
+            [(30001, 13001017, 1000, 0)],
+            {"responses": 4, "gaps": [(5, 15)], "total": 20},
+        )
+        service = CaptureService(self.db_path)
+        with patch(
+            "nightfall.capture_service.detect_game_connections",
+            return_value={"endpoints": [("192.0.2.1", 9000)], "interface": "test"},
+        ), patch("nightfall.capture_service.GachaMonitor", return_value=monitor):
+            service.start(self.account_id)
+            self.wait_for_status(service, "recording")
+            service.stop()
+            state = self.wait_for_status(service, "completed")
+
+        self.assertEqual(state["result"]["records"], 0)
+        self.assertIn("漏页", state["result"]["message"])
+        db = DatabaseManager(self.db_path)
+        try:
+            self.assertEqual(db.get_record_count(self.account_id), 0)
         finally:
             db.close()
 

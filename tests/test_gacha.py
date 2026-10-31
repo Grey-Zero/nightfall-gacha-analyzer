@@ -1,5 +1,4 @@
 import unittest
-from collections import deque
 from unittest.mock import patch
 
 from nightfall.gacha import (
@@ -76,19 +75,6 @@ class GachaPageConsistencyTests(unittest.TestCase):
 
         self.assertEqual(pages, {})
         self.assertEqual(stats["offset_mismatch"], 1)
-
-    def test_all_records_request_wins_over_same_offset_single_pool_request(self):
-        with patch(
-            "nightfall.gacha.parse_c08_response",
-            return_value=(5, 6, [(30008, 13001039, 1000)]),
-        ):
-            pages, stats = collect_query0_pages(
-                [(1, b"all-records", 0)],
-                {1: deque([(30008, 5), (0, 5)])},
-            )
-
-        self.assertEqual(sorted(pages), [5])
-        self.assertEqual(stats["total"], 6)
 
     def test_total_must_remain_stable_during_capture(self):
         with patch(

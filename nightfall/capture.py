@@ -39,7 +39,7 @@ class PacketCapture:
         cmd = [
             self.tshark_path,
             "-i", self.interface,
-            "-B", "64",                     # 64 MB 内核缓冲区
+            "-B", "256",                    # 大型全量采集需要更大的内核缓冲区
             "-f", self._capture_filter(),
             "-w", self.pcap_path,
         ]

@@ -73,6 +73,22 @@ function setCaptureState(capture) {
     item.textContent = `检测到 ${capture.result.single_pool_queries} 个单池筛选请求，这类数据不会导入。`;
     warnings.appendChild(item);
   }
+  if (!capture.result?.records && capture.result?.diagnostics) {
+    const item = document.createElement("li");
+    const diagnostics = capture.result.diagnostics;
+    const parts = [];
+    if (diagnostics.responses) parts.push(`抽卡响应 ${diagnostics.responses}`);
+    if (diagnostics.offset_mismatch) parts.push(`offset 错配 ${diagnostics.offset_mismatch}`);
+    if (diagnostics.unpaired) parts.push(`未配对 ${diagnostics.unpaired}`);
+    if (diagnostics.bad_frames) parts.push(`无效响应帧 ${diagnostics.bad_frames}`);
+    if (diagnostics.gaps?.length) {
+      parts.push(`漏页区间 ${diagnostics.gaps.map(([a, b]) => `${a}-${b}`).join("，")}`);
+    }
+    if (parts.length) {
+      item.textContent = `解析诊断：${parts.join("，")}。`;
+      warnings.appendChild(item);
+    }
+  }
   warnings.hidden = !warnings.childElementCount;
 }
 
