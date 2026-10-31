@@ -11,8 +11,9 @@ nightfall-gacha-records.json
 
 # 本地开发工具
 dev/
+# tools/ 下均为个人辅助脚本，其中自动点击器不随项目发布
 /tools/*
-!/tools/clicker.py
+/tests/test_clicker.py
 
 # TShark/Wireshark
 tshark/

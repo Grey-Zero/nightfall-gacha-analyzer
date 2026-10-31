@@ -112,7 +112,6 @@ nightfall/
 frontend/                PyWebView 界面（HTML/CSS/JS）与图标
 data/                    卡牌与卡池元数据
 tests/                   回归测试
-tools/                   开发辅助脚本
 NightfallGachaAnalyzer.spec   PyInstaller 打包配置
 ```
 
