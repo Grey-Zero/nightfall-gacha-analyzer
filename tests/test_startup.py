@@ -9,6 +9,7 @@ from nightfall.startup import (
     dotnet_version_name,
     ensure_environment,
     environment_summary,
+    format_error_detail,
     report_startup_failure,
     write_startup_log,
 )
@@ -116,17 +117,66 @@ class StartupLogTests(unittest.TestCase):
         self.assertIn("不存在", summary)
 
 
+class FormatErrorDetailTests(unittest.TestCase):
+    @staticmethod
+    def _raise_and_capture():
+        try:
+            raise ValueError("bad payload")
+        except ValueError as error:
+            return error
+
+    def test_none_returns_empty(self):
+        self.assertEqual(format_error_detail(None), "")
+
+    def test_traceback_and_exception_are_kept(self):
+        detail = format_error_detail(self._raise_and_capture())
+        self.assertIn("Traceback", detail)
+        self.assertIn("ValueError: bad payload", detail)
+
+    def test_long_traceback_keeps_only_the_tail(self):
+        def recurse(depth):
+            if depth == 0:
+                raise RuntimeError("deep")
+            recurse(depth - 1)
+
+        try:
+            recurse(15)
+        except RuntimeError as error:
+            detail = format_error_detail(error, max_frames=2)
+
+        self.assertIn("中间省略", detail)
+        self.assertIn("RuntimeError: deep", detail)
+        self.assertLess(len(detail.splitlines()), 12)
+
+    def test_very_long_detail_is_truncated(self):
+        error = RuntimeError("x" * 5000)
+        detail = format_error_detail(error, max_chars=200)
+        self.assertLessEqual(len(detail.splitlines()[0]), 220)
+        self.assertIn("已截断", detail)
+
+
 class ReportMessageTests(unittest.TestCase):
     def setUp(self):
         self.shown = []
         self.opened = []
+        self.notified = []
+        self.copied = []
         self._ask = startup._ask
         self._open_path = startup._open_path
+        self._notify = startup._notify
+        self._copy = startup.copy_to_clipboard
+        self._print = startup._print_to_console
         startup._open_path = lambda target: self.opened.append(target) or True
+        startup._notify = lambda text, title: self.notified.append(text) or True
+        startup.copy_to_clipboard = lambda text: self.copied.append(text) or True
+        startup._print_to_console = lambda text: False
 
     def tearDown(self):
         startup._ask = self._ask
         startup._open_path = self._open_path
+        startup._notify = self._notify
+        startup.copy_to_clipboard = self._copy
+        startup._print_to_console = self._print
 
     def _answer(self, yes):
         startup._ask = lambda text, title: self.shown.append((text, title)) or yes
@@ -148,7 +198,7 @@ class ReportMessageTests(unittest.TestCase):
         self.assertIn("RuntimeError", text)
         self.assertIn("Failed to resolve", written)
 
-    def test_unknown_cause_opens_log_file(self):
+    def test_unknown_cause_copies_error_to_clipboard(self):
         self._answer(True)
         with tempfile.TemporaryDirectory() as tmp:
             report_startup_failure(
@@ -156,8 +206,38 @@ class ReportMessageTests(unittest.TestCase):
                 problems=[],
                 log_dir=tmp,
             )
+        self.assertEqual(self.opened, [])
+        self.assertEqual(len(self.copied), 1)
+        self.assertIn("RuntimeError: boom", self.copied[0])
+        self.assertIn("已复制", self.notified[0])
+
+    def test_clipboard_failure_falls_back_to_log_file(self):
+        self._answer(True)
+        startup.copy_to_clipboard = lambda text: False
+        with tempfile.TemporaryDirectory() as tmp:
+            report_startup_failure(
+                error=RuntimeError("boom"),
+                problems=[],
+                log_dir=tmp,
+            )
         self.assertEqual(str(self.opened[0]), str(Path(tmp) / "startup-error.log"))
-        self.assertIn("截图发给开发者", self.shown[0][0])
+
+    def test_error_detail_is_shown_in_dialog_not_only_logged(self):
+        self._answer(False)
+        try:
+            raise ValueError("bad payload")
+        except ValueError as error:
+            with tempfile.TemporaryDirectory() as tmp:
+                report_startup_failure(
+                    error=error,
+                    problems=[],
+                    log_dir=tmp,
+                )
+        message = self.shown[0][0]
+        self.assertIn("错误详情", message)
+        self.assertIn("ValueError: bad payload", message)
+        self.assertIn("Traceback", message)
+        self.assertIn("不需要再找日志文件", message)
 
     def test_declining_opens_nothing(self):
         self._answer(False)

@@ -17,6 +17,10 @@ MIN_RUNTIME_DLL_BYTES = 100_000
 APP_NAME = "NightfallGachaAnalyzer"
 DOTNET_URL = "https://dotnet.microsoft.com/download/dotnet-framework/net48"
 
+# 弹窗里能看清的错误详情上限：再长就会被窗口截掉，完整内容仍写进日志
+MAX_INLINE_DETAIL_CHARS = 1200
+INLINE_DETAIL_FRAMES = 4
+
 # 阈值从高到低，取第一个不大于实际 Release 的版本
 DOTNET_RELEASE_NAMES = (
     (533320, "4.8.1"),
@@ -163,6 +167,72 @@ def _ask(text, title):
         return False
 
 
+def _notify(text, title):
+    """只提示一句，不需要用户做选择"""
+    try:
+        # 0x40 = MB_ICONINFORMATION，0 = MB_OK
+        ctypes.windll.user32.MessageBoxW(0, text, title, 0x40 | 0x00)
+        return True
+    except Exception:
+        return False
+
+
+def copy_to_clipboard(text):
+    """把文本放进剪贴板，失败返回 False"""
+    try:
+        from ctypes import wintypes
+
+        CF_UNICODETEXT = 13
+        GMEM_MOVEABLE = 0x0002
+        kernel32 = ctypes.windll.kernel32
+        user32 = ctypes.windll.user32
+        kernel32.GlobalAlloc.restype = wintypes.HGLOBAL
+        kernel32.GlobalLock.restype = wintypes.LPVOID
+        kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+        kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+        user32.SetClipboardData.argtypes = [wintypes.UINT, wintypes.HANDLE]
+        user32.SetClipboardData.restype = wintypes.HANDLE
+
+        buffer = ctypes.create_unicode_buffer(text)
+        size = ctypes.sizeof(buffer)
+        handle = kernel32.GlobalAlloc(GMEM_MOVEABLE, size)
+        if not handle:
+            return False
+        pointer = kernel32.GlobalLock(handle)
+        if not pointer:
+            kernel32.GlobalFree(handle)
+            return False
+        ctypes.memmove(pointer, buffer, size)
+        kernel32.GlobalUnlock(handle)
+
+        if not user32.OpenClipboard(None):
+            kernel32.GlobalFree(handle)
+            return False
+        try:
+            user32.EmptyClipboard()
+            # 成功后剪贴板接管这块内存，不能再 GlobalFree
+            if not user32.SetClipboardData(CF_UNICODETEXT, handle):
+                kernel32.GlobalFree(handle)
+                return False
+        finally:
+            user32.CloseClipboard()
+        return True
+    except Exception:
+        return False
+
+
+def _print_to_console(text):
+    """有控制台时（源码运行或命令行启动）顺便把错误打到 stderr"""
+    stream = sys.stderr
+    if stream is None:
+        return False
+    try:
+        print(text, file=stream)
+        return True
+    except Exception:
+        return False
+
+
 def _open_path(target):
     try:
         os.startfile(str(target))
@@ -177,6 +247,37 @@ def _error_headline(error):
     return f"{type(error).__name__}: {error}".splitlines()[0]
 
 
+def format_error_detail(error, max_chars=MAX_INLINE_DETAIL_CHARS,
+                        max_frames=INLINE_DETAIL_FRAMES):
+    """把异常整理成能直接放进弹窗的短文本
+
+    弹窗装不下完整堆栈，所以只保留异常本身和最后几个调用帧；
+    完整堆栈照旧写进日志，需要时再打开。
+    """
+    if error is None:
+        return ""
+
+    try:
+        chunks = traceback.format_exception(
+            type(error), error, error.__traceback__)
+    except Exception:
+        chunks = [f"{type(error).__name__}: {error}\n"]
+
+    lines = []
+    for chunk in chunks:
+        lines.extend(line for line in chunk.rstrip("\n").split("\n"))
+
+    if len(lines) > max_frames * 2 + 2:
+        headline = lines[0] if lines[0].startswith("Traceback") else ""
+        tail = lines[-(max_frames * 2 + 1):]
+        lines = ([headline] if headline else []) + ["  ...（中间省略）"] + tail
+
+    body = "\n".join(lines)
+    if len(body) > max_chars:
+        body = body[:max_chars].rstrip() + "\n...（已截断，完整内容见日志）"
+    return body
+
+
 def _program_dir():
     if is_frozen_app():
         return Path(sys.executable).resolve().parent
@@ -184,10 +285,10 @@ def _program_dir():
 
 
 def report_startup_failure(error=None, problems=None, log_dir=None, during_startup=True):
-    """界面无法打开时给出读得懂的中文提示，并留下日志
+    """界面无法打开时给出读得懂的中文提示，并把错误详情直接显示出来
 
-    面向装好就用、不看命令行的用户：对话框里只写「现在该做什么」，
-    原始堆栈写进日志，用户点一下就打开。
+    面向装好就用、不看命令行的用户：弹窗里既写「现在该做什么」，
+    也直接贴出错误详情，点「是」就能复制，不需要再去文件夹里找日志。
     """
     if error is None:
         error = sys.exc_info()[1]
@@ -196,7 +297,7 @@ def report_startup_failure(error=None, problems=None, log_dir=None, during_start
 
     lines = ["程序无法启动，界面组件没有加载成功。" if during_startup
              else "程序遇到错误，需要关闭。", ""]
-    target = "log"
+    target = "clipboard"
     if problems:
         lines.append("原因：")
         lines.extend(f"· {item}" for item in problems)
@@ -217,12 +318,20 @@ def report_startup_failure(error=None, problems=None, log_dir=None, during_start
     if headline:
         lines.append(f"错误信息：{headline}")
 
-    detail = (
-        "".join(traceback.format_exception(type(error), error, error.__traceback__))
-        if error is not None
-        else ""
+    header = "\n".join(lines)
+    detail = format_error_detail(error)
+    if detail:
+        lines.append("")
+        lines.append("错误详情：")
+        lines.extend(detail.split("\n"))
+
+    full_log = "".join(
+        traceback.format_exception(type(error), error, error.__traceback__)
+    ) if error is not None else ""
+    log_path = write_startup_log(
+        header + "\n\n完整堆栈：\n" + (full_log or "（没有异常对象）"),
+        log_dir=log_dir,
     )
-    log_path = write_startup_log("\n".join(lines) + "\n\n" + detail, log_dir=log_dir)
 
     lines.append("")
     if target == "dotnet":
@@ -231,30 +340,32 @@ def report_startup_failure(error=None, problems=None, log_dir=None, during_start
     elif target == "folder":
         lines.append("请重新下载 ZIP 并完整解压，覆盖到程序文件夹。")
         lines.append("账号数据在用户目录，重新解压不会丢。")
-    elif during_startup:
-        lines.append("可以把下面的错误信息截图发给开发者。")
     else:
-        lines.append("请把详细信息发给开发者。")
+        lines.append("把上面的错误信息发给开发者即可，不需要再找日志文件。")
     if log_path is not None:
-        lines.append("")
-        lines.append(f"详细信息已保存到：{log_path}")
+        lines.append(f"（完整日志：{log_path}）")
 
     if target == "dotnet":
         action = "点「是」打开 .NET Framework 4.8 下载页"
     elif target == "folder":
         action = "点「是」打开程序文件夹"
     else:
-        action = "点「是」打开详细信息"
+        action = "点「是」复制错误信息"
     lines.extend(["", f"{action}，点「否」直接关闭。"])
 
     text = "\n".join(lines)
     title = "夜幕之下抽卡分析 启动失败" if during_startup else "夜幕之下抽卡分析 出错"
+    _print_to_console(text)
+
     if _ask(text, title):
         if target == "dotnet":
             _open_path(DOTNET_URL)
         elif target == "folder":
             _open_path(_program_dir())
-        else:
+        elif copy_to_clipboard(text):
+            _notify("错误信息已复制到剪贴板，直接粘贴到反馈里即可。", title)
+        elif log_path is not None:
+            # 剪贴板不可用时退回打开日志，至少还有一条路
             _open_path(log_path)
     return text
 
