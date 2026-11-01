@@ -37,7 +37,8 @@
 
 ## 系统要求
 
-- Windows 10 / 11
+- Windows 10 / 11（64 位）
+- .NET Framework 4.7.2 或更高版本（Windows 10 1803 之后的系统自带；精简版系统可能没有，需要装 [.NET Framework 4.8](https://dotnet.microsoft.com/download/dotnet-framework/net48)）
 - [Npcap](https://npcap.com/) 抓包驱动（安装时保持默认选项即可）
 
 从 Releases 下载的发行包已内置 TShark，不需要另外安装 Wireshark。
@@ -64,6 +65,14 @@
 升级注意：从 0.1.x 升级后，首次启动会自动把程序目录里的 `nightfall.db`、`config.json` 和 `captures/` 搬到 `%APPDATA%\NightfallGachaAnalyzer\`，不需要手动迁移。
 
 ## 常见问题
+
+**双击后弹窗报错，程序打不开**
+
+程序启动前会自己检查 .NET Framework 和程序目录里的依赖文件，弹窗直接写原因和下一步，不需要敲命令：
+
+- 说 .NET Framework 版本过低或没装：点弹窗里的「是」会打开下载页，装好 .NET Framework 4.8 再打开程序即可，不用重装、账号数据不会丢。
+- 说 `Python.Runtime.dll` 找不到或大小不对：重新下载 ZIP 并**完整解压**，确认 `_internal\pythonnet\runtime\` 下有这个 dll；如果安全软件报过毒，把整个程序目录加入白名单。
+- 说没能确定原因：点「是」会打开详细信息文件，把内容或截图发给作者即可。
 
 **提示「没有解析到记录」**
 

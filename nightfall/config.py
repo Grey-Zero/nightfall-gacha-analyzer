@@ -27,7 +27,7 @@ DB_PATH = DATA_ROOT / "nightfall.db"
 CAPTURES_DIR = DATA_ROOT / "captures"
 
 # 程序版本号：发布新版本时更新，供更新检测和错误报告使用
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
 
 DEFAULT_CONFIG = {
     "last_account_id": None,

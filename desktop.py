@@ -7,7 +7,18 @@ import sys
 import webbrowser
 from datetime import datetime
 
-import webview
+from nightfall.startup import ensure_environment, report_startup_failure
+
+# 界面依赖 .NET Framework（pywebview → pythonnet），先检查环境再加载界面，
+# 缺组件时给中文提示，而不是 PyInstaller 的英文堆栈。
+if not ensure_environment():
+    raise SystemExit(1)
+
+try:
+    import webview
+except Exception:
+    report_startup_failure()
+    raise SystemExit(1)
 
 from nightfall.data_service import get_accounts, get_dashboard, get_export_data
 from nightfall.capture_service import CaptureService
@@ -231,4 +242,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except BaseException:
+        # 兜底：运行中崩溃也给中文提示，避免只剩 PyInstaller 的英文堆栈
+        report_startup_failure(during_startup=False)
+        raise SystemExit(1)
