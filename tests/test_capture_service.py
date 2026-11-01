@@ -166,6 +166,34 @@ class CaptureServiceTests(unittest.TestCase):
         self.assertEqual(metadata["endpoints"], [["192.0.2.1", 9000]])
         self.assertEqual(metadata["extract_stats"]["total"], 1)
 
+    def test_stopping_before_last_page_imports_and_warns(self):
+        """中途停止：分页连续就照常导入，只提示还差多少条"""
+        monitor = FakeMonitor(
+            [(30001, 13001017, 1000 + index, index) for index in range(15)],
+            {"responses": 3, "pages": 3, "records": 15,
+             "total": 1261, "covered_end": 15, "gaps": []},
+        )
+        service = CaptureService(self.db_path)
+        with patch(
+            "nightfall.capture_service.detect_game_connections",
+            return_value={"endpoints": [("192.0.2.1", 9000)], "interface": "test"},
+        ), patch("nightfall.capture_service.GachaMonitor", return_value=monitor):
+            service.start(self.account_id)
+            self.wait_for_status(service, "recording")
+            service.stop()
+            state = self.wait_for_status(service, "completed")
+
+        self.assertEqual(state["result"]["inserted"], 15)
+        self.assertTrue(any(
+            "1261" in warning and "继续采集" in warning
+            for warning in state["result"]["warnings"]
+        ))
+        db = DatabaseManager(self.db_path)
+        try:
+            self.assertEqual(db.get_record_count(self.account_id), 15)
+        finally:
+            db.close()
+
     def test_cancel_waiting_for_game_connection(self):
         service = CaptureService(self.db_path)
         with patch(
