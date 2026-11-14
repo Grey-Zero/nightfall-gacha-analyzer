@@ -23,6 +23,10 @@ class PositionValidationTests(unittest.TestCase):
             get_card(13001063),
             {"id": 13001063, "name": "执剑人", "character": "骑士", "rarity": 6},
         )
+        self.assertEqual(
+            get_card(13001057),
+            {"id": 13001057, "name": "献祭日", "character": "替罪羊", "rarity": 6},
+        )
 
     def setUp(self):
         self.db = DatabaseManager(":memory:")
@@ -172,6 +176,31 @@ class PositionValidationTests(unittest.TestCase):
         self.db.create_account("已有账号")
         with self.assertRaisesRegex(ValueError, "昵称已被其他账号使用"):
             self.db.update_account(self.account_id, "已有账号")
+
+    def test_unknown_card_metadata_is_refreshed_on_open(self):
+        path = Path(tempfile.mkdtemp()) / "refresh.db"
+        db = DatabaseManager(path)
+        try:
+            account_id = db.create_account("回填")
+            db.conn.execute(
+                "INSERT INTO records VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (account_id, 30009, 13001057, 1794450120078, 55, None,
+                 "未知卡牌 #13001057", "?", "limited",
+                 "2026-11-12T02:22:00.078Z"),
+            )
+            db.conn.commit()
+        finally:
+            db.close()
+
+        db = DatabaseManager(path)
+        try:
+            record = db.get_records(account_id)[0]
+            self.assertEqual(
+                (record["rarity"], record["name"], record["character"]),
+                (6, "献祭日", "替罪羊"),
+            )
+        finally:
+            db.close()
 
     def test_delete_account_cascades_records_and_updates(self):
         self.db.insert_records(self.account_id, [

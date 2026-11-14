@@ -98,6 +98,7 @@ class DatabaseManager:
                      "ON updates(account_id, update_time DESC)")
 
         self._migrate(conn)
+        self._refresh_card_metadata(conn)
         conn.commit()
         return conn
 
@@ -109,6 +110,29 @@ class DatabaseManager:
         }
         if "note" not in columns:
             conn.execute("ALTER TABLE accounts ADD COLUMN note TEXT")
+
+    @staticmethod
+    def _refresh_card_metadata(conn):
+        """回填旧版本导入时卡牌表里还没有的卡
+
+        导入时卡牌信息是一次性写入的，之后新增卡牌不会追溯旧记录，
+        所以启动时按当前卡牌表校正一次，避免旧记录一直缺少名称和稀有度。
+        """
+        rows = conn.execute(
+            "SELECT DISTINCT result_id, rarity, name, character FROM records"
+        ).fetchall()
+        for row in rows:
+            card = get_card(row["result_id"])
+            if card["rarity"] is None:
+                continue
+            expected = (card["rarity"], card["name"], card["character"])
+            if (row["rarity"], row["name"], row["character"]) == expected:
+                continue
+            conn.execute(
+                "UPDATE records SET rarity = ?, name = ?, character = ? "
+                "WHERE result_id = ?",
+                (*expected, row["result_id"]),
+            )
 
     # ==================== 账号管理 ====================
 
