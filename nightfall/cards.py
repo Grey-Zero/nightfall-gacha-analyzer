@@ -1,22 +1,53 @@
-"""卡牌和卡池数据加载"""
+"""卡牌和卡池数据加载。
+
+数据按优先级取：云端缓存（见 catalog.py）→ 打包内置副本。
+缓存由启动时的刷新写入，内置副本保证断网或首次运行时也能分析。
+"""
 import json
 from pathlib import Path
+
+from . import catalog
 
 _DATA_DIR = Path(__file__).parent.parent / "data"
 _CARDS = None
 _POOLS = None
 
+
+def _read(name):
+    """先读云端缓存，不可用时退回打包内置副本"""
+    for directory in (catalog.cache_dir(), _DATA_DIR):
+        try:
+            data = json.loads((directory / name).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        problem = (
+            catalog.validate_cards(data) if name == "cards.json"
+            else catalog.validate_pools(data, list(load_cards().values()))
+        )
+        if problem is None:
+            return data
+    raise ValueError(f"{name} 不存在或内容不合法")
+
+
+def reload():
+    """丢弃缓存，下次读取时重新加载（云端卡表更新后调用）"""
+    global _CARDS, _POOLS
+    _CARDS = None
+    _POOLS = None
+
+
 def load_cards():
     global _CARDS
     if _CARDS is None:
-        data = json.loads((_DATA_DIR / "cards.json").read_text(encoding="utf-8"))
+        data = _read("cards.json")
         _CARDS = {card["id"]: card for card in data}
     return _CARDS
+
 
 def load_pools():
     global _POOLS
     if _POOLS is None:
-        data = json.loads((_DATA_DIR / "pools.json").read_text(encoding="utf-8"))
+        data = _read("pools.json")
         _POOLS = {pool["id"]: pool for pool in data}
     return _POOLS
 

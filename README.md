@@ -32,6 +32,7 @@
 
 **维护**
 
+- 启动时从仓库拉取最新的卡表和卡池表，新增卡牌无需更新程序；拉取失败时继续用本地缓存或内置副本
 - 启动时检查 GitHub Releases，发现新版本会提示并给出下载页，可自行下载替换
 - 账号数据、配置和抓包都保存在用户目录，解压新版本覆盖程序文件夹不会影响数据
 
@@ -120,9 +121,11 @@
   nightfall.db
   config.json
   captures\
+  catalog\cards.json
+  catalog\pools.json
 ```
 
-旧版本把数据放在程序目录里，首次启动新版本会自动搬到上面的位置。删除这个文件夹等于清空所有账号和记录，建议先导出备份。
+旧版本把数据放在程序目录里，首次启动新版本会自动搬到上面的位置。删除这个文件夹等于清空所有账号和记录，建议先导出备份。`catalog\` 里是启动时从仓库拉到的最新卡表和卡池表，删掉也没关系，下次启动会重新获取，取不到就用程序内置的副本。
 
 **升级要重新装一遍吗？**
 
@@ -166,15 +169,18 @@ nightfall/
   database.py            SQLite 存储
   data_service.py        首页与记录页数据
   pity.py                保底与六星间隔统计
+  catalog.py             云端卡表拉取、校验与本地缓存
   cards.py               卡牌与卡池数据加载
   cli_ui.py              命令行界面
 frontend/                PyWebView 界面（HTML/CSS/JS）与图标
-data/                    卡牌与卡池元数据（部分由历史记录归纳而来）
+data/                    卡牌与卡池元数据（随程序发布的内置副本）
 tests/                   回归测试
 NightfallGachaAnalyzer.spec   PyInstaller 打包配置
 ```
 
 数据库、配置、原始抓包和构建产物都在 `.gitignore` 中，不会进入仓库。
+
+`data/` 里的卡表和卡池表同时是云端数据源：程序启动时从仓库的 `main` 分支拉取，校验通过才写入用户目录的缓存。新增卡牌或卡池只需要修改 `data/cards.json`、`data/pools.json` 并推送到 `main`，不必重新打包发版；`data/` 仍然是离线兜底，构建时打进安装包。
 
 ## 构建发行包
 

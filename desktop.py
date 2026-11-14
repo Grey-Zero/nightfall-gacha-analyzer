@@ -4,6 +4,7 @@
 import json
 from pathlib import Path
 import sys
+import threading
 import webbrowser
 from datetime import datetime
 
@@ -24,6 +25,8 @@ from nightfall.data_service import get_accounts, get_dashboard, get_export_data
 from nightfall.capture_service import CaptureService
 from nightfall.config import APP_VERSION, DB_PATH, CAPTURES_DIR
 from nightfall.database import DatabaseManager
+from nightfall import cards as card_catalog
+from nightfall import catalog
 from nightfall.backup import build_backup, import_backup_file
 from nightfall.diagnostics import (
     build_error_report,
@@ -37,6 +40,19 @@ from nightfall.updates import RELEASE_PAGE, check_update
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
 ICON_PATH = ROOT / "frontend" / "assets" / "nightfall.ico"
 capture_service = CaptureService(DB_PATH, captures_dir=CAPTURES_DIR)
+
+
+def refresh_catalog_async():
+    """后台刷新云端卡表，不阻塞界面，失败就继续用现有数据"""
+    def worker():
+        try:
+            catalog.refresh()
+        except Exception:
+            pass
+        finally:
+            card_catalog.reload()
+
+    threading.Thread(target=worker, daemon=True).start()
 
 
 class Api:
@@ -228,6 +244,7 @@ class Api:
 
 def main():
     migrate_legacy_data()
+    refresh_catalog_async()
     window = webview.create_window(
         "夜幕之下抽卡分析",
         str(ROOT / "frontend" / "index.html"),
