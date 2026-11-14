@@ -37,9 +37,61 @@ DOTNET_RELEASE_NAMES = (
 
 _UNSET = object()
 
+ZONE_STREAM = ":Zone.Identifier"
+NATIVE_LOADER = Path("clr_loader") / "ffi" / "dlls" / "amd64" / "ClrLoader.dll"
+
 
 def is_frozen_app():
     return bool(getattr(sys, "frozen", False))
+
+
+def has_zone_marker(path):
+    """文件是否带 Windows 的「来自 Internet」下载标记"""
+    try:
+        return os.path.exists(f"{path}{ZONE_STREAM}")
+    except OSError:
+        return False
+
+
+def unblock_file(path):
+    """删除单个文件的下载标记，实际删掉标记时返回 True"""
+    if not has_zone_marker(path):
+        return False
+    try:
+        # 命名流可以用 DeleteFileW 直接删除，等同资源管理器的「解除锁定」
+        return bool(ctypes.windll.kernel32.DeleteFileW(f"{path}{ZONE_STREAM}"))
+    except Exception:
+        return False
+
+
+def unblock_program_files(root=None):
+    """清除发行包解压后残留的下载标记
+
+    浏览器下载的 ZIP 解压后每个文件都带「来自 Internet」标记，pythonnet
+    无法加载被标记的 Python.Runtime.dll，会报
+    「Failed to resolve Python.Runtime.Loader.Initialize」。
+    这里先看关键 DLL 有没有标记，没有就跳过整树扫描。
+    """
+    if root is None:
+        if not is_frozen_app():
+            return 0
+        root = Path(getattr(sys, "_MEIPASS", "") or "")
+    root = Path(root)
+    if not root.is_dir():
+        return 0
+
+    sentinels = (bundled_runtime_dll(root), root / NATIVE_LOADER)
+    if not any(has_zone_marker(path) for path in sentinels):
+        return 0
+
+    base = _program_dir() or root
+    if root not in (base, *base.parents):
+        base = root
+    removed = 0
+    for path in base.rglob("*"):
+        if path.is_file() and unblock_file(path):
+            removed += 1
+    return removed
 
 
 def read_dotnet_release():
@@ -113,6 +165,14 @@ def diagnose_startup(release=_UNSET, runtime_dll=_UNSET, is_frozen=_UNSET):
             problems.append(
                 f"{runtime_dll.name} 只有 {size} 字节，可能解压不完整或被安全软件改动。"
                 "请重新解压完整安装包，或把程序目录加入杀毒软件白名单。"
+            )
+        elif has_zone_marker(runtime_dll):
+            # 正常情况下启动时已经自动解除，走到这里说明没有权限删除标记
+            problems.append(
+                f"{runtime_dll.name} 还带着「来自 Internet」的下载标记，"
+                "Windows 会拒绝加载它。请右键下载的 ZIP 选「属性」，"
+                "勾选底部的「解除锁定」后重新解压；"
+                "或者把程序目录移到不需要管理员权限的位置再运行。"
             )
 
     return problems
@@ -371,7 +431,8 @@ def report_startup_failure(error=None, problems=None, log_dir=None, during_start
 
 
 def ensure_environment(log_dir=None):
-    """启动前检查 .NET 和程序文件，有问题就提示并返回 False"""
+    """启动前解除下载标记、检查 .NET 和程序文件，有问题就提示并返回 False"""
+    unblock_program_files()
     problems = diagnose_startup()
     if not problems:
         return True

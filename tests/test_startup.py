@@ -93,6 +93,62 @@ class DiagnoseStartupTests(unittest.TestCase):
         self.assertEqual(problems, [])
 
 
+class DownloadMarkerTests(unittest.TestCase):
+    def _marked(self, directory, size=MIN_RUNTIME_DLL_BYTES):
+        path = Path(directory) / "Python.Runtime.dll"
+        path.write_bytes(b"\0" * size)
+        Path(f"{path}:Zone.Identifier").write_text(
+            "[ZoneTransfer]\nZoneId=3\n", encoding="utf-8")
+        return path
+
+    def test_zone_marker_is_detected_and_removed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._marked(tmp)
+            self.assertTrue(startup.has_zone_marker(path))
+
+            self.assertTrue(startup.unblock_file(path))
+            self.assertFalse(startup.has_zone_marker(path))
+            self.assertFalse(startup.unblock_file(path))
+
+    def test_marked_dll_is_reported_as_a_problem(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            problems = diagnose_startup(
+                release=528040,
+                runtime_dll=self._marked(tmp),
+                is_frozen=True,
+            )
+        self.assertEqual(len(problems), 1)
+        self.assertIn("解除锁定", problems[0])
+
+    def test_program_files_are_unblocked_before_startup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "_internal"
+            dll_dir = root / "pythonnet" / "runtime"
+            dll_dir.mkdir(parents=True)
+            dll = dll_dir / "Python.Runtime.dll"
+            dll.write_bytes(b"\0" * MIN_RUNTIME_DLL_BYTES)
+            Path(f"{dll}:Zone.Identifier").write_text("ZoneId=3", encoding="utf-8")
+
+            other = root / "data" / "cards.json"
+            other.parent.mkdir(parents=True)
+            other.write_text("[]", encoding="utf-8")
+            Path(f"{other}:Zone.Identifier").write_text("ZoneId=3", encoding="utf-8")
+
+            removed = startup.unblock_program_files(root=root)
+
+            self.assertEqual(removed, 2)
+            self.assertFalse(startup.has_zone_marker(dll))
+            self.assertFalse(startup.has_zone_marker(other))
+
+    def test_directories_without_markers_are_left_alone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "pythonnet" / "runtime").mkdir(parents=True)
+            (root / "pythonnet" / "runtime" / "Python.Runtime.dll").write_bytes(
+                b"\0" * MIN_RUNTIME_DLL_BYTES)
+            self.assertEqual(startup.unblock_program_files(root=root), 0)
+
+
 class StartupLogTests(unittest.TestCase):
     def test_log_written_to_given_directory(self):
         with tempfile.TemporaryDirectory() as tmp:
